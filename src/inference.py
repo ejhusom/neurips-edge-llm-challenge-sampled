@@ -16,6 +16,8 @@ def main():
     output_file = args.output
     model_names = args.model
 
+    counter = 0
+
     # Process the input file, run inference, save result
     with jsonlines.open(input_file, mode='r') as prompts:
         with jsonlines.open(output_file, mode='a') as writer:
@@ -23,7 +25,13 @@ def main():
                 ollama.pull(model_name)
                 for prompt in prompts:
                     response = ollama.chat(model=model_name, messages=[{'role': 'user', 'content': prompt['input']}])
-                    writer.write({'indata': prompt, 'output': response})
+                    response_dict = response.__dict__
+                    response_dict["message"] = response_dict["message"].__dict__
+
+                    writer.write({'indata': prompt, 'output': response_dict})
+                    print(f"Completed prompt {counter}")
+                    counter += 1
+
                 ollama.delete(model_name)
 
 if __name__ == "__main__":
