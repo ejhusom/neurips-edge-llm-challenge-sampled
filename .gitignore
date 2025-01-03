@@ -1,0 +1,14 @@
+# python
+__pycache__
+.ipynb*
+venv
+
+# temporary files:
+*.pyc
+*.bak
+*.swp
+*~
+.*~
+tmp*
+.#*
+\#*
