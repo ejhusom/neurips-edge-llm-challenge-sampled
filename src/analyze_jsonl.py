@@ -33,7 +33,7 @@ def plot_analysis(file_data, output_dir):
 
     plt.subplot(1, 2, 1)
     for i, (file_name, (eval_counts, eval_durations, dataset_model)) in enumerate(file_data.items()):
-        color = 'blue' if 'without' in file_name else 'red'
+        color = 'blue' if 'without_instruction' in file_name else 'red'
         plt.boxplot(eval_counts, positions=[i], patch_artist=True, boxprops=dict(facecolor=color))
         labels.append(f"{dataset_model}")
     plt.xticks(range(len(labels)), labels, rotation=45, ha='right')
@@ -45,7 +45,7 @@ def plot_analysis(file_data, output_dir):
 
     plt.subplot(1, 2, 2)
     for i, (file_name, (eval_counts, eval_durations, dataset_model)) in enumerate(file_data.items()):
-        color = 'blue' if 'without' in file_name else 'red'
+        color = 'blue' if 'without_instruction' in file_name else 'red'
         plt.boxplot(eval_durations, positions=[i], patch_artist=True, boxprops=dict(facecolor=color))
     plt.xticks(range(len(labels)), labels, rotation=45, ha='right')
     plt.xlabel('Dataset - Model')
@@ -66,7 +66,7 @@ def print_average_eval_counts(file_data):
 def compute_average_reduction(file_data):
     paired_files = {}
     for file_name in file_data.keys():
-        base_name = file_name.replace("with_instruction", "").replace("without_instruction", "")
+        base_name = file_name.replace("_with_instruction", "").replace("_without_instruction", "")
         if base_name not in paired_files:
             paired_files[base_name] = {}
         if "with_instruction" in file_name:
