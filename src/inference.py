@@ -105,7 +105,5 @@ def main():
                     
                     counter += 1
 
-                ollama.delete(model_name)
-
 if __name__ == "__main__":
     main()
