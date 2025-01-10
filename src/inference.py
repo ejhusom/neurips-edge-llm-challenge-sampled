@@ -2,6 +2,7 @@
 import ollama
 import jsonlines
 import argparse
+import time
 
 def main():
     # Set up argument parser
@@ -29,7 +30,7 @@ def main():
                     response_dict["message"] = response_dict["message"].__dict__
 
                     writer.write({'indata': prompt, 'output': response_dict})
-                    print(f"Completed prompt {counter}")
+                    print(f"Completed prompt {counter} at time {time.time()}")
                     counter += 1
 
                 ollama.delete(model_name)
