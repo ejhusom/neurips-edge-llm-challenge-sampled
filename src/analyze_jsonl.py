@@ -11,7 +11,7 @@ def analyze_file(file_path):
     with jsonlines.open(file_path, mode='r') as reader:
         for i, obj in enumerate(reader):
             if i == 0:
-                dataset_model = obj['indata']['dataset'] + " - " + obj['output']['model']
+                dataset_model = get_dataset_name(file_path) + " - " + obj['output']['model']
             eval_count = obj['output'].get('eval_count')
             eval_duration = obj['output'].get('eval_duration')
             if eval_count is not None and eval_duration is not None:
@@ -19,6 +19,10 @@ def analyze_file(file_path):
                 eval_durations.append(eval_duration)
 
     return eval_counts, eval_durations, dataset_model
+
+def get_dataset_name(file_name):
+    parts = file_name.split('_')
+    return parts[2]
 
 def plot_analysis(file_data, output_dir):
     eval_counts_data = []
@@ -59,6 +63,27 @@ def print_average_eval_counts(file_data):
         average_eval_count = sum(eval_counts) / len(eval_counts) if eval_counts else 0
         print(f"Avg response length for {file_name} ({dataset_model}): {average_eval_count}")
 
+def compute_average_reduction(file_data):
+    paired_files = {}
+    for file_name in file_data.keys():
+        base_name = file_name.replace("with_instruction", "").replace("without_instruction", "")
+        if base_name not in paired_files:
+            paired_files[base_name] = {}
+        if "with_instruction" in file_name:
+            paired_files[base_name]["with"] = file_name
+        else:
+            paired_files[base_name]["without"] = file_name
+
+    for base_name, files in paired_files.items():
+        if "with" in files and "without" in files:
+            with_counts = file_data[files["with"]][0]
+            without_counts = file_data[files["without"]][0]
+            if without_counts:
+                avg_with = sum(with_counts) / len(with_counts)
+                avg_without = sum(without_counts) / len(without_counts)
+                reduction = ((avg_without - avg_with) / avg_without) * 100
+                print(f"Average reduction in eval_count for {base_name}: {reduction:.2f}%")
+
 def main():
     parser = argparse.ArgumentParser(description="Analyze JSONL files and create plots.")
     parser.add_argument('--files', type=str, nargs='+', required=True, help="Paths to the input JSONL files.")
@@ -72,11 +97,13 @@ def main():
     file_data = {}
     for file_path in args.files:
         file_name = os.path.basename(file_path)
+        dataset_name = get_dataset_name(file_name)
         eval_counts, eval_durations, dataset_model = analyze_file(file_path)
         file_data[file_name] = (eval_counts, eval_durations, dataset_model)
 
     plot_analysis(file_data, args.output_dir)
     print_average_eval_counts(file_data)
+    compute_average_reduction(file_data)
 
 if __name__ == "__main__":
     main()

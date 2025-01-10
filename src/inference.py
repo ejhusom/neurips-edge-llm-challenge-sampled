@@ -22,7 +22,9 @@ def process_prompt(dataset_type, prompt, instruction=""):
         return prompt['question'] + instruction
 
     elif dataset_type == "HumanEval":
-        return f"{prompt['prompt']}\n# Complete this implementation"
+        if instruction is not None:
+            instruction = "\n\n# Complete the function implementation based on the provided docstring, and never print any extra explanations about how the code was generated."
+        return f"{prompt['prompt']}" + instruction
 
     elif dataset_type == "TruthfulQA":
         question = prompt['question']
