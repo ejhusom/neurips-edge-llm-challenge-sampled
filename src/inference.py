@@ -22,8 +22,6 @@ def process_prompt(dataset_type, prompt, instruction=""):
         return prompt['question'] + instruction
 
     elif dataset_type == "HumanEval":
-        if instruction is not None:
-            instruction = "\n\n# Complete the function implementation based on the provided docstring, and never print any extra explanations about how the code was generated."
         return f"{prompt['prompt']}" + instruction
 
     elif dataset_type == "TruthfulQA":
@@ -39,7 +37,7 @@ def read_first_line(file_path):
         for line in reader:
             return line
 
-def test_process_prompt(instruction=""):
+def test_process_prompt(instruction_general="", instruction_humaneval=""):
     datasets = {
         "BIG-Bench-Hard": "./BIG-Bench-Hard/collated_bbh_200_samples.jsonl",
         "CommonSenseQA": "./CommonsenseQA/commonsenseqa_200_samples.jsonl",
@@ -49,6 +47,10 @@ def test_process_prompt(instruction=""):
     }
 
     for dataset_type, file_path in datasets.items():
+        if dataset_type == "HumanEval":
+            instruction = instruction_humaneval
+        else:
+            instruction = instruction_general
         if os.path.exists(file_path):
             first_prompt = read_first_line(file_path)
             formatted_prompt = process_prompt(dataset_type, first_prompt, instruction)
@@ -69,13 +71,19 @@ def main():
 
     args = parser.parse_args()
 
+    instruction_general = "\n\nNever print any extra explanations about how the response was generated."
+    instruction_humaneval = "\n\n# Complete the function implementation based on the provided docstring, and never print any extra explanations about how the code was generated."
+
     if args.instruction:
-        instruction = "\n\nNever print any extra explanations about how the response was generated."
+        if args.dataset_type == "HumanEval":
+            instruction = instruction_humaneval
+        else:
+            instruction = instruction_general
     else:
         instruction = ""
 
     if args.test:
-        test_process_prompt(instruction)
+        test_process_prompt(instruction_general, instruction_humaneval)
         return
 
 
