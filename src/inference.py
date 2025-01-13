@@ -71,8 +71,10 @@ def main():
 
     args = parser.parse_args()
 
-    instruction_general = "\n\nNever print any extra explanations about how the response was generated."
-    instruction_humaneval = "\n\n# Complete the function implementation based on the provided docstring, and never print any extra explanations about how the code was generated."
+    # instruction_general = "\n\nNever print any extra explanations about how the response was generated. Print only the answer surrounded by <ANS> and </ANS>."
+    # instruction_humaneval = "\n\n# Complete the function implementation based on the provided docstring, and never print any extra explanations about how the code was generated. Print only the answer surrounded by <ANS> and </ANS>."
+    instruction_general = "\n\nPrint only the answer surrounded by <ANS> and </ANS>. Never print any extra explanations about how the response was generated."
+    instruction_humaneval = "\n\n# Complete the function implementation based on the provided docstring, and print only the completed function surrounded by <ANS> and </ANS>. Never print any extra explanations about how the code was generated."
 
     if args.instruction:
         if args.dataset_type == "HumanEval":

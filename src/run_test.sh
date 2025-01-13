@@ -20,6 +20,9 @@ extract_model_family() {
   echo "$1" | cut -d':' -f1 | sed 's/[0-9.]*$//'
 }
 
+# Number of lines to include in the temporary input file
+num_lines=50
+
 # Loop over each model and dataset
 for model in "${models[@]}"; do
   model_family=$(extract_model_family "$model")
@@ -30,16 +33,24 @@ for model in "${models[@]}"; do
     echo $model_family
     echo $dataset_filename
     input_file="${dataset}/${dataset_filename}_50_samples.jsonl"
+    temp_input_file="${dataset_filename}_temp_${num_lines}_samples.jsonl"
     output_file_with_instruction="test_${model_family}_${dataset_filename}_with_instruction.jsonl"
     output_file_without_instruction="test_${model_family}_${dataset_filename}_without_instruction.jsonl"
     echo $input_file
+    echo $temp_input_file
     echo $output_file_with_instruction
     echo $output_file_without_instruction
 
+    # Create a temporary file with reduced number of lines
+    head -n "$num_lines" "$input_file" > "$temp_input_file"
+
     # Run inference with instruction
-    python3 src/inference.py --input "$input_file" --output "$output_file_with_instruction" --instruction --model "$model" --dataset_type "$dataset"
+    python3 src/inference.py --input "$temp_input_file" --output "$output_file_with_instruction" --instruction --model "$model" --dataset_type "$dataset"
 
     # Run inference without instruction
-    python3 src/inference.py --input "$input_file" --output "$output_file_without_instruction" --model "$model" --dataset_type "$dataset"
+    python3 src/inference.py --input "$temp_input_file" --output "$output_file_without_instruction" --model "$model" --dataset_type "$dataset"
+
+    # Remove the temporary file
+    rm "$temp_input_file"
   done
 done
