@@ -13,7 +13,10 @@
 
 # Datasets and models
 datasets=("GSM8K" "TruthfulQA" "HumanEval" "CommonSenseQA" "BIG-Bench-Hard")
+# datasets=("HumanEval")
 models=("gemma2:2b-instruct-q3_K_S" "qwen2.5:0.5b" "llama3.2:1b")
+# models=("gemma2:2b-instruct-q3_K_S")
+# models=("qwen2.5:0.5b" "llama3.2:1b")
 
 # Extract model family from the model name, e.g., llama3.2:1b -> llama
 extract_model_family() {
@@ -21,7 +24,7 @@ extract_model_family() {
 }
 
 # Number of lines to include in the temporary input file
-num_lines=50
+num_lines=10
 
 # Loop over each model and dataset
 for model in "${models[@]}"; do

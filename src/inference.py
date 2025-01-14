@@ -3,6 +3,13 @@ import jsonlines
 import argparse
 import os
 import time
+import signal
+
+class TimeoutException(Exception):
+    pass
+
+def timeout_handler(signum, frame):
+    raise TimeoutException
 
 def process_prompt(dataset_type, prompt, instruction=""):
     """
@@ -67,7 +74,7 @@ def main():
     parser.add_argument('--dataset_type', type=str, help="Dataset type (e.g., BIG-Bench-Hard, CommonSenseQA, GSM8K, HumanEval, TruthfulQA).")
     parser.add_argument('--test', action='store_true', help="Test the process_prompt function with the first line of the input file.")
     parser.add_argument('--instruction', action='store_true', help="Include instruction in the prompt.")
-
+    parser.add_argument('--timeout', type=int, default=30, help="Timeout in seconds for each prompt.")
 
     args = parser.parse_args()
 
@@ -88,7 +95,6 @@ def main():
         test_process_prompt(instruction_general, instruction_humaneval)
         return
 
-
     if not (args.input and args.output and args.model and args.dataset_type):
         parser.error("the following arguments are required: --input, --output, --model, --dataset_type")
 
@@ -96,6 +102,7 @@ def main():
     output_file = args.output
     model_names = args.model
     dataset_type = args.dataset_type
+    timeout = args.timeout
 
     counter = 0
 
@@ -108,14 +115,38 @@ def main():
                 for prompt in prompts:
                     formatted_prompt = process_prompt(dataset_type, prompt, instruction)
                     print(formatted_prompt)
-                    response = ollama.chat(model=model_name, messages=[{'role': 'user', 'content': formatted_prompt}])
-                    response_dict = response.__dict__
-                    response_dict["message"] = response_dict["message"].__dict__
-                    writer.write({'indata': prompt, 'formatted_prompt': formatted_prompt, 'output': response_dict})
-                    print(response_dict["message"]["content"])
-                    print(f"Completed prompt {counter} for model {model_name} at time {time.time()}")
+
+                    signal.signal(signal.SIGALRM, timeout_handler)
+                    signal.alarm(timeout)
+                    try:
+                        # Uncomment below for chat API
+                        # response = ollama.chat(model=model_name, messages=[{'role': 'user', 'content': formatted_prompt}])
+                        # response_dict = response.__dict__
+                        # response_dict["message"] = response_dict["message"].__dict__
+                        # writer.write({'indata': prompt, 'formatted_prompt': formatted_prompt, 'output': response_dict})
+                        # print(response_dict["message"]["content"])
+                        # print(f"Completed prompt {counter} for model {model_name} at time {time.time()}")
+
+                        # Generate API
+                        response = ollama.generate(
+                            model=model_name, 
+                            # messages=[{'role': 'user', 'content': formatted_prompt}], 
+                            prompt=formatted_prompt,
+                            options = {
+                                'temperature': 0
+                            }
+                        )
+                        response_dict = response.__dict__
+                        writer.write({'indata': prompt, 'formatted_prompt': formatted_prompt, 'output': response_dict})
+                        print(response.response)
+                        print(f"Completed prompt {counter} for model {model_name} at time {time.time()}")
+                        print("========================================================")
+                    except TimeoutException:
+                        print(f"Timeout for prompt {counter} for model {model_name} at time {time.time()}")
+                        print("========================================================")
+                    finally:
+                        signal.alarm(0)
                     
                     counter += 1
-
 if __name__ == "__main__":
     main()

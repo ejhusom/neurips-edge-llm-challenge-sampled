@@ -11,7 +11,7 @@ def analyze_file(file_path):
     with jsonlines.open(file_path, mode='r') as reader:
         for i, obj in enumerate(reader):
             if i == 0:
-                dataset_model = get_dataset_name(file_path) + " - " + obj['output']['model']
+                dataset_model = get_dataset_name(file_path) + " - " + get_model_name(file_path)
             eval_count = obj['output'].get('eval_count')
             eval_duration = obj['output'].get('eval_duration')
             if eval_count is not None and eval_duration is not None:
@@ -23,6 +23,10 @@ def analyze_file(file_path):
 def get_dataset_name(file_name):
     parts = file_name.split('_')
     return parts[2]
+
+def get_model_name(file_name):
+    parts = file_name.split('_')
+    return parts[3]
 
 def plot_analysis(file_data, output_dir):
     eval_counts_data = []

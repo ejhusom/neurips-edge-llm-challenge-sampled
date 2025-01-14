@@ -12,7 +12,11 @@ def read_jsonl_content(filepath):
     with open(filepath, 'r') as file:
         data = [json.loads(line) for line in file]
         formatted_prompt = data[0]['formatted_prompt']
-        output_content = [entry['output']['message']['content'].strip() for entry in data]
+        try:
+            output_content = [entry['output']['message']['content'].strip() for entry in data]
+        except KeyError:
+            output_content = [entry['output']['response'].strip() for entry in data]
+
     return formatted_prompt, output_content
 
 def compare_responses(directories, output_csv, exclude_without=True, include_prompt=True):
@@ -53,7 +57,8 @@ if __name__ == "__main__":
         "experiment-instructions-without",
         "experiment-instructions-v1",
         #"experiment-instructions-v2",
-        "experiment-instructions-v3"
+        # "experiment-instructions-v3",
+        "experiment-instructions-temp0-v2",
     ]
     output_csv = "comparison_results.csv"
     compare_responses(directories, output_csv, exclude_without=True, include_prompt=False)
