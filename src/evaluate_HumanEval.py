@@ -2,6 +2,7 @@
 import json
 from evaluate import load
 import argparse
+import sys
 import os
 os.environ["HF_ALLOW_CODE_EVAL"] = "1"
 
@@ -44,7 +45,7 @@ def postprocess_responses(responses):
 def postprocess_extracted_jsonl_file(input_file):
     """Read, process, and write cleaned JSONL responses."""
 
-    # Generate the output file name by appending "_extracted" to the input file name 
+    # Generate the output file name by appending "_cleared" to the input file name 
     base_name, ext = os.path.splitext(input_file)
     output_file = f"{base_name}_cleared{ext}"
 
@@ -96,6 +97,7 @@ def evaluate_pass_at_k(cleared_jsonl_file, k=[1]):
                 model_list.append(model)
     
     # Compute pass@k
+    print(f"pass@{k} evaluation in progress...")
     pass_at_k, results = code_eval.compute(references=test_cases, predictions=candidates, k=k)
 
     # Create a dictionary to track models and their performances
@@ -115,9 +117,7 @@ def main(input_file, k_values=[1]):
     # Step 3: Evaluate pass@k
     pass_at_k, model_performance = evaluate_pass_at_k(cleaned_file, k=k_values)
 
-    # Print the results
-    print(f"Overall pass@k for k={k_values}: {pass_at_k}")
-    print("Model performance breakdown:", model_performance)
+    return pass_at_k, model_performance
 
 
 # %%
@@ -136,6 +136,16 @@ if __name__ == "__main__":
     # Parse arguments
     args = parser.parse_args()
 
+    # Check if the file exists
+    if not os.path.isfile(args.input_file):
+        print(f"Error: The file {args.input_file} does not exist.")
+        sys.exit(1)
+    
     # Call the main function with the parsed arguments
-    main(args.input_file, args.k_values)
+    pass_at_k, model_performance = main(args.input_file, args.k_values)
+
+    # Print the results
+    print(f"Overall pass@k for k={args.k_values}: {pass_at_k}")
+    print("Model performance breakdown:", model_performance)
+
 
