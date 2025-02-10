@@ -2,123 +2,110 @@
 import json
 from evaluate import load
 import argparse
-import sys
 import os
+import pandas as pd
+from typing import List
 os.environ["HF_ALLOW_CODE_EVAL"] = "1"
 
 # %%
-def extract_and_write_fields(input_file):
-    # Generate the output file name by appending "_extracted" to the input file name 
-    base_name, ext = os.path.splitext(input_file)
-    output_file = f"{base_name}_extracted{ext}"
-
-    extracted_data = []
-
-    with open(input_file, 'r') as infile:
-        for line in infile:
+def extract_fields_from_jsonl(file_path: str, fields: List[str]) -> pd.DataFrame:
+    """
+    Extract specified fields from a JSONL file and return them as a DataFrame.
+    
+    :param file_path: Path to the JSONL file.
+    :param fields: List of field names to extract, using dot notation for nested fields.
+    :return: DataFrame with extracted columns if available.
+    """
+    data = []
+    
+    # Read JSONL file and load data
+    with open(file_path, "r", encoding="utf-8") as f:
+        for line in f:
             try:
-                data = json.loads(line)
-                extracted_entry = {
-                    "task_id": data.get("indata", {}).get("task_id"),
-                    "test": data.get("indata", {}).get("test"),
-                    "model": data.get("output", {}).get("model"),
-                    "response": data.get("output", {}).get("response")
-                }
-                extracted_data.append(extracted_entry)
+                data.append(json.loads(line))
             except json.JSONDecodeError as e:
-                print(f"Error decoding JSON line: {e}")
-
-    # Write the extracted fields to a new JSONL file
-    with open(output_file, 'w') as outfile:
-        for entry in extracted_data:
-            outfile.write(json.dumps(entry) + '\n')
-
-    print(f"Extracted data has been written to {output_file}")
-    return output_file
-
-# %%
-def postprocess_responses(responses):
-    """Remove <ANS> and </ANS> from responses."""
-    return [response.replace("<ANS>", "").replace("</ANS>", "") for response in responses]
-
-# %%
-def postprocess_extracted_jsonl_file(input_file):
-    """Read, process, and write cleaned JSONL responses."""
-
-    # Generate the output file name by appending "_cleared" to the input file name 
-    base_name, ext = os.path.splitext(input_file)
-    output_file = f"{base_name}_cleared{ext}"
-
-    cleaned_data = []
+                print(f"Error parsing line: {line[:100]}...\nError: {e}")
     
-    # Read the JSONL file
-    with open(input_file, 'r') as infile:
-        for line in infile:
-            data = json.loads(line.strip())
-            
-            # Ensure 'response' exists, and process it
-            if 'response' in data:
-                data['response'] = data['response'].replace("<ANS>", "").replace("</ANS>", "")
-            
-            cleaned_data.append(data)
+    if not data:
+        print("No valid data found in the file.")
+        return pd.DataFrame()
     
-    # Write the cleaned data back to a new JSONL file
-    with open(output_file, 'w') as outfile:
-        for entry in cleaned_data:
-            outfile.write(json.dumps(entry) + '\n')
-            
-    print(f"Cleaned responses have been written to {output_file}.")
-    return output_file
+    # Normalize nested JSON data
+    df = pd.json_normalize(data)
+    
+    # Check for missing columns
+    missing_columns = [col for col in fields if col not in df.columns]
+    if missing_columns:
+        print(f"Columns not found: {missing_columns}. Available columns are:\n{df.columns.tolist()}")
+    
+    # Return DataFrame with only requested fields if they exist
+    available_columns = [col for col in fields if col in df.columns]
+    return df[available_columns] if available_columns else pd.DataFrame()
 
 # %%
-def evaluate_pass_at_k(cleared_jsonl_file, k=[1]):
+def clean_response(df: pd.DataFrame, column_name: str) -> pd.DataFrame:
+    """
+    Clean the specified column in the given DataFrame and add a new column 'cleaned_{column_name}'.
+    
+    :param df: DataFrame containing the specified column.
+    :param column_name: The name of the column to be cleaned.
+    :return: DataFrame with an added 'cleaned_{column_name}' column.
+    """
+    if column_name in df.columns:
+        cleaned_column_name = f"cleaned_{column_name}"
+        df[cleaned_column_name] = df[column_name].astype(str).str.replace("<ANS>", "").str.replace("</ANS>", "")
+    else:
+        print(f"Column '{column_name}' not found in DataFrame.")
+    
+    return df
+
+# %%
+def evaluate_pass_at_k(df: pd.DataFrame, k=[1]) -> dict:
+    """
+    Evaluate the pass@k metric over a cleaned DataFrame.
+    
+    :param df: DataFrame containing test cases, model information, and cleaned responses.
+    :param k: List of k values for pass@k evaluation.
+    :return: Dictionary with pass@k scores per model.
+    """
     # Load the evaluation function
     code_eval = load("code_eval")
     
-    # Prepare lists for test cases, responses, and model tracking
-    test_cases = []
-    candidates = []
-    model_list = []
+    if not all(col in df.columns for col in ["indata.test", "output.model", "cleaned_output.response"]):
+        print("Missing required columns for evaluation.")
+        return {}
     
-    # Read the JSONL file
-    with open(cleared_jsonl_file, 'r') as infile:
-        for line in infile:
-            entry = json.loads(line.strip())
-            
-            # Extract the test case and response
-            test = entry.get("test", "")
-            response = entry.get("response", "")
-            model = entry.get("model", "unknown_model")  # Use 'unknown_model' if the field is missing
-            
-            if test and response:
-                # Append the test, response, and model to the respective lists
-                test_cases.append(test)
-                candidates.append([response])  # Candidates need to be nested for pass@k
-                model_list.append(model)
+    # Respective lists for the test, cleaned response, and model
+    test_cases = df["indata.test"].tolist()
+    candidates = df["cleaned_output.response"].apply(lambda x: [x] if pd.notna(x) else []).tolist()
+    model_list = df["output.model"].tolist()
     
-    # Compute pass@k
-    print(f"pass@{k} evaluation in progress...")
+    # Compute pass@k for each model
     pass_at_k, results = code_eval.compute(references=test_cases, predictions=candidates, k=k)
-
-    # Create a dictionary to track models and their performances
-    model_performance = {model: pass_at_k for model in set(model_list)}
     
-    return pass_at_k, model_performance
-
+    # Track models and their performances
+    model_performance = {model: pass_at_k for model in set(model_list)}
+    return model_performance
 
 # %%
-def main(input_file, k_values=[1]):
-    # Step 1: Extract and write required fields to calculate pass@k
-    extracted_file = extract_and_write_fields(input_file)
+def main(input_file: str, k_values=[1]):
+    """
+    Main function to extract, clean, and evaluate pass@k.
     
-    # Step 2: Postprocess the extracted JSONL file, clear responses from <ANS> tags
-    cleaned_file = postprocess_extracted_jsonl_file(extracted_file)
+    :param input_file: Path to the input JSONL file.
+    :param k_values: List of k values for pass@k evaluation.
+    """
+    print("\n[Step 1] Extracting necessary fields...")
+    df_extracted = extract_fields_from_jsonl(input_file, ["indata.task_id", "indata.test", "output.model", "output.response"])
     
-    # Step 3: Evaluate pass@k
-    pass_at_k, model_performance = evaluate_pass_at_k(cleaned_file, k=k_values)
-
-    return pass_at_k, model_performance
-
+    print("\n[Step 2] Cleaning responses...")
+    df_cleaned = clean_response(df_extracted, "output.response")
+    
+    print("\n[Step 3] Evaluating accuracy...")
+    performance = evaluate_pass_at_k(df_cleaned, k=k_values)
+    
+    print(f"\nModel performance: {performance}")
+    return performance
 
 # %%
 if __name__ == "__main__":
@@ -136,16 +123,7 @@ if __name__ == "__main__":
     # Parse arguments
     args = parser.parse_args()
 
-    # Check if the file exists
-    if not os.path.isfile(args.input_file):
-        print(f"Error: The file {args.input_file} does not exist.")
-        sys.exit(1)
-    
     # Call the main function with the parsed arguments
-    pass_at_k, model_performance = main(args.input_file, args.k_values)
-
-    # Print the results
-    print(f"Overall pass@k for k={args.k_values}: {pass_at_k}")
-    print("Model performance breakdown:", model_performance)
+    main(args.input_file, args.k_values)
 
 
