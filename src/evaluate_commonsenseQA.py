@@ -5,44 +5,51 @@ from collections import Counter, defaultdict
 import re
 import sys
 import os
+import pandas as pd
+from typing import List
 
 # %%
-def extract_and_write_fields(input_file):
-    # Generate the output file name by appending "_extracted" to the input file name 
-    base_name, ext = os.path.splitext(input_file)
-    output_file = f"{base_name}_extracted{ext}"
-
-    extracted_data = []
-
-    with open(input_file, 'r') as infile:
-        for line in infile:
-            try:
-                data = json.loads(line)
-                extracted_entry = {
-                    "answerKey": data.get("indata", {}).get("answerKey"),
-                    "id": data.get("indata", {}).get("id"),
-                    "choices": data.get("indata", {}).get("question", {}).get("choices", []),
-                    "model": data.get("output", {}).get("model"),
-                    "response": data.get("output", {}).get("response")
-                }
-                extracted_data.append(extracted_entry)
-            except json.JSONDecodeError as e:
-                print(f"Error decoding JSON line: {e}")
-
-    # Write the extracted fields to a new JSONL file
-    with open(output_file, 'w') as outfile:
-        for entry in extracted_data:
-            outfile.write(json.dumps(entry) + '\n')
-
-    print(f"Extracted data has been written to {output_file}")
-    return output_file
-
-# %%
-def postprocess_responses(responses):
-    """Extract the actual response from various ANS formats and handle invalid cases."""
-    cleaned_responses = []
+def extract_fields_from_jsonl(file_path: str, fields: List[str]) -> pd.DataFrame:
+    """
+    Extract specified fields from a JSONL file and return them as a DataFrame.
     
-    for response in responses:
+    :param file_path: Path to the JSONL file.
+    :param fields: List of field names to extract, using dot notation for nested fields.
+    :return: DataFrame with extracted columns if available.
+    """
+    data = []
+    
+    # Read JSONL file and load data
+    with open(file_path, "r", encoding="utf-8") as f:
+        for line in f:
+            try:
+                data.append(json.loads(line))
+            except json.JSONDecodeError as e:
+                print(f"Error parsing line: {line[:100]}...\nError: {e}")
+    
+    if not data:
+        print("No valid data found in the file.")
+        return pd.DataFrame()
+    
+    # Normalize nested JSON data
+    df = pd.json_normalize(data)
+    
+    # Check for missing columns
+    missing_columns = [col for col in fields if col not in df.columns]
+    if missing_columns:
+        print(f"Columns not found: {missing_columns}. Available columns are:\n{df.columns.tolist()}")
+    
+    # Return DataFrame with only requested fields if they exist
+    available_columns = [col for col in fields if col in df.columns]
+    return df[available_columns] if available_columns else pd.DataFrame()
+
+
+# %%
+def clean_response(response):
+        """Extract the actual response from various ANS formats and handle invalid cases."""
+        if not isinstance(response, str):  # Handle cases where response isn't a string
+            return ""
+
         # Try to extract the response between <ANS> and </ANS>
         match = re.search(r"<ANS>(.*?)</ANS>", response, re.IGNORECASE)
         if not match:
@@ -52,43 +59,11 @@ def postprocess_responses(responses):
         # Extracted response if found, otherwise set empty string for invalid responses
         extracted = match.group(1).strip() if match else response.strip()
 
-        # Handle invalid cases like "</ANS>", "<ANS>", etc.
-        if extracted in {"</ANS>", "<ANS>", "ANS >", ""}:
+        # Handle invalid cases like "</ANS>", "<ANS>", "ANS >", "" by setting them to empty string
+        if extracted in {"</ANS>", "<ANS>", "ANS >", ">", ""}:
             extracted = ""
 
-        cleaned_responses.append(extracted)
-
-    return cleaned_responses
-
-
-# %%
-def postprocess_extracted_jsonl_file(input_file):
-    """Read, process, and write cleaned JSONL responses."""
-
-    # Generate the output file name by appending "_cleared" to the input file name
-    base_name, ext = os.path.splitext(input_file)
-    output_file = f"{base_name}_cleared{ext}"
-
-    cleaned_data = []
-    
-    # Read the JSONL file
-    with open(input_file, 'r') as infile:
-        for line in infile:
-            data = json.loads(line.strip())
-
-            # Ensure 'response' exists, and process it using postprocess_responses
-            if 'response' in data:
-                data['response'] = postprocess_responses([data['response']])[0]  # Process single response
-            
-            cleaned_data.append(data)
-    
-    # Write the cleaned data back to a new JSONL file
-    with open(output_file, 'w') as outfile:
-        for entry in cleaned_data:
-            outfile.write(json.dumps(entry) + '\n')
-            
-    print(f"Cleaned responses have been written to {output_file}.")
-    return output_file
+        return extracted
 
 # %%
 def clean_responses_further(response):
@@ -112,6 +87,25 @@ def clean_responses_further(response):
 
 
 # %%
+def postprocess_responses(df: pd.DataFrame, column_name: str) -> pd.DataFrame:
+    """
+    Clean the specified column in the given DataFrame and add a new column 'cleaned_{column_name}'.
+    
+    :param df: DataFrame containing the specified column.
+    :param column_name: The name of the column to be cleaned.
+    :return: DataFrame with an added 'cleaned_{column_name}' column.
+    """
+    # Apply cleaning function to the specified column and store in "cleaned_{column_name}"
+    if column_name in df.columns:
+        cleaned_column_name = f"cleaned_{column_name}"
+        df[cleaned_column_name] = df[column_name].apply(clean_response)
+        df[cleaned_column_name] = df[cleaned_column_name].apply(clean_responses_further)
+    else:
+        raise ValueError(f"Column '{column_name}' not found in DataFrame.")
+    return df
+
+
+# %%
 def match_response_to_label(response, choices):
     """Match a response (either raw text or label) to the corresponding choice label (A-E)."""
     # If the response is None, return None immediately
@@ -132,85 +126,77 @@ def match_response_to_label(response, choices):
 
 
 # %%
-def evaluate_accuracy(input_file):
-    """Evaluate accuracy by counting correct responses."""
-    total = 0
+def evaluate_accuracy(df: pd.DataFrame) -> dict:
+    """Evaluate accuracy by counting correct responses from a DataFrame."""
+    total = len(df)
     correct = 0
-    valid_responses = 0  # Track how many responses are valid
-    removed_responses = 0  # Track how many responses were discarded as invalid
+    valid_responses = 0  # Count of valid responses
+    removed_responses = 0  # Count of invalid responses
 
     model_correct_counts = defaultdict(int)
     model_total_counts = defaultdict(int)
 
-    invalid_responses = []  # To store invalid responses
+    invalid_responses = []  # Store invalid responses for debugging
 
-    with open(input_file, 'r') as infile:
-        for line in infile:
-            data = json.loads(line.strip())
+    for _, row in df.iterrows():
+        answer_key = row.get("indata.answerKey")
+        choices = row.get("indata.question.choices", [])
+        cleaned_response = row.get("cleaned_output.response", "")
+        model = row.get("output.model", "unknown_model")
 
-            # Extract required fields
-            answer_key = data.get("answerKey")
-            choices = data.get("choices", [])
-            raw_response = data.get("response", "")
-            model = data.get("model", "unknown_model")  # Model name
+        # Match cleaned response to choice labels
+        if cleaned_response:
+            matched_label = match_response_to_label(cleaned_response, choices)
 
-            # Clean and match response
-            cleaned_response = clean_responses_further(raw_response)
-
-            # If the response is valid (not None), process it
-            if cleaned_response is not None:
-                matched_label = match_response_to_label(cleaned_response, choices)
+            if matched_label is not None:
+                valid_responses += 1
+                model_total_counts[model] += 1  # Count total number of responses for the model
                 
-                # Only count valid responses that have a matched label
-                if matched_label is not None:
-                    valid_responses += 1
-                    model_total_counts[model] += 1  # Count valid responses
-                    if matched_label == answer_key:
-                        model_correct_counts[model] += 1  # Count correct responses
-                else:
-                    removed_responses += 1  # Count discarded responses
-                    invalid_responses.append((line.strip(), "No matching label"))  # Capture the raw line as invalid response
-
+                if matched_label == answer_key:
+                    model_correct_counts[model] += 1  # Count correct responses
             else:
-                removed_responses += 1  # If the cleaned response is None, discard it
-                invalid_responses.append((line.strip(), "Empty or invalid response"))  # Capture the raw line as invalid response
+                removed_responses += 1  # No valid label found
+                model_total_counts[model] += 1
+                invalid_responses.append((cleaned_response, "No matching label"))
+        else:
+            removed_responses += 1  # Empty response
+            model_total_counts[model] += 1
+            invalid_responses.append((cleaned_response, "Empty response"))
 
-            total += 1  # Count every response line, whether valid or invalid
-        
-   
     # Compute accuracy per model
-    print(f"Accuracy evaluation in progress...")
     model_accuracies = {
-        model: (model_correct_counts[model] / total) * 100 if total > 0 else 0
-        for model in model_correct_counts.keys()
+        model: (model_correct_counts[model] / model_total_counts[model]) * 100 if model_total_counts[model] > 0 else 0
+        for model in model_total_counts.keys()
     }
-    # Print results
+
+    # Print summary
     print(f"Total responses: {total}")
     print(f"Valid responses: {valid_responses}")
     print(f"Removed responses: {removed_responses}")
     for model, accuracy in model_accuracies.items():
-        print(f"Model: {model} | Correct: {model_correct_counts[model]} / {total} | Accuracy: {accuracy:.2f}%")
+        print(f"Model: {model} | Correct: {model_correct_counts[model]} / {model_total_counts[model]} | Accuracy: {accuracy:.2f}%")
 
     # Print invalid responses
     if invalid_responses:
         print("\nInvalid responses detected:")
-        for response, reason in invalid_responses:
+        for response, reason in invalid_responses[:10]:  # Show first 10 invalid cases
             print(f"Invalid Response: {response} | Reason: {reason}")
-              
+
     return model_accuracies
 
 
 # %%
 def main(input_file):
-    # Step 1: Extract and write required fields to calculate accuracy
-    extracted_file = extract_and_write_fields(input_file)
+    print("\n[Step 1] Extracting necessary fields...")
+    df_extracted = extract_fields_from_jsonl(input_file, ["indata.answerKey", "indata.id", "indata.question.choices", "output.model", "output.response"])
     
-    # Step 2: Postprocess the extracted JSONL file, clear responses from <ANS> tags
-    cleaned_file = postprocess_extracted_jsonl_file(extracted_file)
+    print("\n[Step 2] Postprocessing responses...")
+    df_cleaned = postprocess_responses(df_extracted, "output.response")
     
-    # Step 3: Evaluate accuracy
-    model_accuracies = evaluate_accuracy(cleaned_file)
-
+    print("\n[Step 3] Evaluating accuracy...")
+    model_accuracies = evaluate_accuracy(df_cleaned)
+    
+    #print(f"\nModel performance: {model_accuracies}")
     return model_accuracies
     
     
