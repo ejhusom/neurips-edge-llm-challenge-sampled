@@ -6,6 +6,8 @@ import re
 import json
 from collections import defaultdict
 import numpy as np
+import pandas as pd
+from typing import List
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from rouge_score import rouge_scorer
@@ -13,42 +15,60 @@ from difflib import SequenceMatcher
 import nltk
 from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
 from Levenshtein import distance as levenshtein_distance
-# Download required NLTK data
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    nltk.download('punkt', quiet=True)
 
 
 # %%
-def extract_and_write_fields(input_file):
-    # Generate output file name
-    base_name, ext = os.path.splitext(input_file)
-    output_file = f"{base_name}_extracted{ext}"
+def extract_fields_from_jsonl(file_path: str) -> pd.DataFrame:
+    """
+    Extract specified fields from a JSONL file (for TruthfulQA) and return them as a DataFrame.
+    
+    :param file_path: Path to the JSONL file.
+    :return: DataFrame with extracted columns if available.
+    """
+    data = []
 
-    extracted_data = []
-
-    with open(input_file, 'r', encoding='utf-8') as infile:
-        for line in infile:
+    with open(file_path, "r", encoding="utf-8") as f:
+        for line in f:
             try:
-                data = json.loads(line)
-                extracted_entry = {
-                    "mc1_targets": data.get("indata", {}).get("mc1_targets", {}),
-                    "model": data.get("output", {}).get("model", ""),
-                    "response": data.get("output", {}).get("response", "").strip()
-                }
-                extracted_data.append(extracted_entry)
+                data.append(json.loads(line))  # Load each JSON object
             except json.JSONDecodeError as e:
-                print(f"Error decoding JSON line: {e}")
+                print(f"Error parsing line: {line[:100]}...\nError: {e}")
 
-    # Write extracted data to new JSONL file
-    with open(output_file, 'w', encoding='utf-8') as outfile:
-        for entry in extracted_data:
-            json.dump(entry, outfile)
-            outfile.write('\n')  
+    if not data:
+        print("No valid data found in the file.")
 
-    print(f"Extracted data has been written to {output_file}")
-    return output_file
+    # Normalize JSON data
+    rows = []
+    for entry in data:
+        question = entry["indata"]["question"]
+        formatted_prompt = entry["formatted_prompt"]
+        model_response = entry["output"]["response"]
+        model = entry["output"]["model"]
+
+        # Extract choice texts as lists
+        mc1_choices = list(entry["indata"]["mc1_targets"].keys())
+        mc2_choices = list(entry["indata"]["mc2_targets"].keys())
+        #print(mc1_choices)
+
+        # Identify all correct answers (where value == 1)
+        correct_mc1 = [choice for choice, label in entry["indata"]["mc1_targets"].items() if label == 1]
+        correct_mc2 = [choice for choice, label in entry["indata"]["mc2_targets"].items() if label == 1]
+
+        rows.append({
+            "indata.question": question,
+            #"formatted_prompt": formatted_prompt,
+            "mc1_targets": mc1_choices,  # List of all choices
+            "correct_mc1": correct_mc1,  # List of correct answers
+            "mc2_targets": mc2_choices,  # List of all choices
+            "correct_mc2": correct_mc2,  # List of correct answers
+            "output.model": model,
+            "output.response": model_response
+        })
+
+    # Create DataFrame from extracted fields
+    df_ectracted = pd.DataFrame(rows)
+    return df_ectracted
+
 
 # %%
 def extract_answer(response):
@@ -437,48 +457,14 @@ def evaluate_response(response, choices):
     return {'combined_match': combined_match(response, choices)}
 
 
-def process_dataset(dataset):
-    """
-    Process entire dataset and evaluate responses
-    
-    Args:
-        dataset (list): List of data entries
-    
-    Returns:
-        list: Processed results for each entry
-    """
-    results = []
-    
-    for entry in dataset:
-        # Find correct choices (labeled with 1)
-        correct_choices = [choice for choice, label in entry['mc1_targets'].items() if label == 1]
-        choices = list(entry["mc1_targets"].keys())
-        cleaned_response = extract_answer(entry["response"])
-        
-        if is_invalid_response(cleaned_response, choices):
-            cleaned_response = "INVALID"
-        
-        # Evaluate response
-        evaluation = evaluate_response(cleaned_response, list(entry['mc1_targets'].keys()))
-
-        results.append({
-            'original_response': entry["response"],
-            'cleaned_response': cleaned_response,
-            'mc1_targets': entry['mc1_targets'],
-            'correct_choices': correct_choices,
-            'evaluation': evaluation
-        })
-    
-    return results
-
 # %%
-def evaluate_accuracy(infile):
+def evaluate_accuracy_old(df):
     """
     Evaluate accuracy based on the best match from evaluate_response function.
-    
+
     Args:
-        infile (str): Path to the JSONL file.
-    
+        df (pd.DataFrame): DataFrame containing response data, and choices.
+
     Returns:
         dict: Accuracy results per model, including:
               - correct responses
@@ -489,56 +475,44 @@ def evaluate_accuracy(infile):
     """
     model_results = defaultdict(lambda: {"correct": 0, "invalid": 0, "wrong": 0, "total": 0})
 
-    with open(infile, "r", encoding="utf-8") as file:
-        for line in file:
-            data = json.loads(line.strip())
+    for _, row in df.iterrows():
+        model = row["output.model"]
+        response = row["output.response"]
+        mc1_targets = row["indata.mc1_targets"]
 
-            model = data["model"]
-            response = data["response"]
-            mc1_targets = data["mc1_targets"]
+        # Extract choices and correct answer
+        choices = list(mc1_targets.keys())
+        correct_answer = next(choice for choice, label in mc1_targets.items() if label == 1)
 
-            # Get the list of choices and the correct answer
-            choices = list(mc1_targets.keys())
-            correct_answer = next(choice for choice, label in mc1_targets.items() if label == 1)
+        # Clean response
+        cleaned_response = extract_answer(response)
 
-            cleaned_response = extract_answer(response)
-        
-            if is_invalid_response(cleaned_response, choices):
-                cleaned_response = "INVALID"
-        
-            # Get the best match
-            best_match_result = evaluate_response(cleaned_response, choices)
+        # Check for invalid response
+        if is_invalid_response(cleaned_response, choices):
+            cleaned_response = "INVALID"
 
-            #print(f"\nModel: {model} | Response: {response} | Cleaned esponse: {cleaned_response}")
-           
-            # Extract best match
-            best_match_data = next(iter(best_match_result.values()))  # Extract first value (dict)
-            
-            # Ensure best_match_data is a dictionary before accessing 'best_match'
-            if isinstance(best_match_data, dict) and 'best_match' in best_match_data:
-                best_match = str(best_match_data['best_match']).strip() 
-            else:
-                best_match = None  # Handle unexpected format
+        # Get the best match
+        best_match_result = evaluate_response(cleaned_response, choices)
 
-            correct_answer = str(correct_answer).strip() 
-            
-            # Update counts based on the match result
-            if best_match == "INVALID":
-                model_results[model]["invalid"] += 1
-            
-            elif best_match == correct_answer:
-                model_results[model]["correct"] += 1
-                #print(f"Best match: {best_match}")
-                #print(f"Correct answer: {correct_answer}")
-                #print(f"Correct: {model_results[model]["correct"]}")
-            else:
-                model_results[model]["wrong"] += 1
-                #print(f"Best match: {best_match}")
-                #print(f"Correct answer: {correct_answer}")
-                #print(f"Wrong: {model_results[model]["wrong"]}")
+        # Extract best match
+        best_match_data = next(iter(best_match_result.values()))
+        best_match = best_match_data.get("best_match", None) if isinstance(best_match_data, dict) else None
 
-            # Increment total responses
-            model_results[model]["total"] += 1  
+        # Normalize strings for comparison
+        correct_answer = str(correct_answer).strip()
+        if best_match:
+            best_match = str(best_match).strip()
+
+        # Update counts based on match result
+        if best_match == "INVALID":
+            model_results[model]["invalid"] += 1
+        elif best_match == correct_answer:
+            model_results[model]["correct"] += 1
+        else:
+            model_results[model]["wrong"] += 1
+
+        # Increment total responses
+        model_results[model]["total"] += 1
 
     # Compute accuracy per model
     accuracy_results = {
@@ -555,14 +529,82 @@ def evaluate_accuracy(infile):
     return accuracy_results
 
 # %%
+def evaluate_accuracy(df):
+    """
+    Evaluate accuracy based on the best match from evaluate_response function.
+
+    Args:
+        df (pd.DataFrame): DataFrame containing response data.
+
+    Returns:
+        dict: Accuracy results per model, including:
+              - correct responses
+              - invalid responses
+              - wrong responses
+              - total responses
+              - accuracy score
+    """
+    model_results = defaultdict(lambda: {"correct": 0, "invalid": 0, "wrong": 0, "total": 0})
+
+    for _, row in df.iterrows():
+        model = row["output.model"]
+        response = row["output.response"]
+        mc1_targets = row["mc1_targets"]  # List of all choices (text only)
+        correct_mc1 = row["correct_mc1"]  # List of correct answers
+
+        # Clean response
+        cleaned_response = extract_answer(response)
+
+        # Check for invalid response
+        if is_invalid_response(cleaned_response, mc1_targets):
+            cleaned_response = "INVALID"
+
+        # Get the best match
+        best_match_result = evaluate_response(cleaned_response, mc1_targets)
+
+        # Extract best match
+        best_match_data = next(iter(best_match_result.values()), {})  # Get first value (dict) safely
+        best_match = best_match_data.get("best_match", None)
+
+        # Normalize for comparison
+        best_match = str(best_match).strip() if best_match else None
+        correct_mc1 = {str(ans).strip() for ans in correct_mc1} 
+
+        # Update counts
+        if best_match == "INVALID":
+            model_results[model]["invalid"] += 1
+        elif best_match in correct_mc1:  # Check if best_match is in correct answers list
+            model_results[model]["correct"] += 1
+        else:
+            model_results[model]["wrong"] += 1
+
+        # Increment total responses
+        model_results[model]["total"] += 1
+
+    # Compute accuracy per model
+    accuracy_results = {
+        model: {
+            "correct": results["correct"],
+            "invalid": results["invalid"],
+            "wrong": results["wrong"],
+            "total": results["total"],
+            "accuracy": round(results["correct"] / results["total"], 4) if results["total"] > 0 else 0.0
+        }
+        for model, results in model_results.items()
+    }
+
+    return accuracy_results
+
+
+# %%
 def main(input_file):
     """Processes the outputs of gsm8k dataset, extracts necessary fields, cleans them, and evaluates accuracy."""
 
     print("\n[Step 1] Extracting necessary fields...")
-    extracted_file = extract_and_write_fields(input_file)
+    df_extracted = extract_fields_from_jsonl(input_file)
     
     print("\n[Step 2] Evaluating accuracy...")
-    results = evaluate_accuracy(extracted_file)
+    results = evaluate_accuracy(df_extracted)
 
     print("\n[Process Complete] Accuracy Evaluation Done.\n")
     
