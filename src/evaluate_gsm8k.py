@@ -5,6 +5,8 @@ import sys
 import re
 import json
 from collections import defaultdict
+import pandas as pd
+from typing import List
 
 # %%
 def extract_ans_from_answer(answer: str, eos=None):
@@ -31,8 +33,9 @@ def extract_ans_from_answer(answer: str, eos=None):
     except ValueError:
         return answer  # Return as a string if it's not a valid integer
 
+
 # %%
-def extract_real_answers_from_responses(response: str):
+def extract_real_answers(response: str):
     """
     Extract the final numerical answer from a formatted response string.
     Returns an integer if a valid answer is found, None otherwise.
@@ -87,85 +90,82 @@ def extract_real_answers_from_responses(response: str):
     return None
 
 # %%
-def extract_and_write_fields(input_file):
-    # Generate output file name
-    base_name, ext = os.path.splitext(input_file)
-    output_file = f"{base_name}_extracted{ext}"
-
-    extracted_data = []
-
-    with open(input_file, 'r', encoding='utf-8') as infile:
-        for line in infile:
+def extract_fields_from_jsonl(file_path: str, fields: List[str]) -> pd.DataFrame:
+    """
+    Extract specified fields from a JSONL file and return them as a DataFrame.
+    
+    :param file_path: Path to the JSONL file.
+    :param fields: List of field names to extract, using dot notation for nested fields.
+    :return: DataFrame with extracted columns if available.
+    """
+    data = []
+    
+    # Read JSONL file and load data
+    with open(file_path, "r", encoding="utf-8") as f:
+        for line in f:
             try:
-                data = json.loads(line)
-                extracted_entry = {
-                    "answer": data.get("indata", {}).get("answer", "").strip(),
-                    "model": data.get("output", {}).get("model", ""),
-                    "response": data.get("output", {}).get("response", "").strip()
-                }
-                extracted_data.append(extracted_entry)
+                data.append(json.loads(line))
             except json.JSONDecodeError as e:
-                print(f"Error decoding JSON line: {e}")
-
-    # Write extracted data to new JSONL file
-    with open(output_file, 'w', encoding='utf-8') as outfile:
-        for entry in extracted_data:
-            json.dump(entry, outfile)
-            outfile.write('\n')  
-
-    print(f"Extracted data has been written to {output_file}")
-    return output_file
+                print(f"Error parsing line: {line[:100]}...\nError: {e}")
+    
+    if not data:
+        print("No valid data found in the file.")
+        return pd.DataFrame()
+    
+    # Normalize nested JSON data
+    df = pd.json_normalize(data)
+    
+    # Check for missing columns
+    missing_columns = [col for col in fields if col not in df.columns]
+    if missing_columns:
+        print(f"Columns not found: {missing_columns}. Available columns are:\n{df.columns.tolist()}")
+    
+    # Return DataFrame with only requested fields if they exist
+    available_columns = [col for col in fields if col in df.columns]
+    return df[available_columns] if available_columns else pd.DataFrame()
 
 
 # %%
-def postprocess_extracted_jsonl_file(input_file):
-    # Generate output file name
-    base_name, ext = os.path.splitext(input_file)
-    output_file = f"{base_name}_cleared{ext}"
-
+def clean_dataframe(df):
     cleaned_data = []
-    invalid_count = 0  # Counter for invalid responses
+    invalid_count = 0  
 
-    with open(input_file, 'r', encoding='utf-8') as infile:
-        for line in infile:
-            try:
-                data = json.loads(line)
+    for index, row in df.iterrows():
+        try:
+            # Extract answer and response from the respective columns in the dataframe
+            raw_answer = row.get("indata.answer", "").strip()
+            raw_response = row.get("output.response", "").strip()
 
-                # Ensure fields exist, else default to empty string
-                raw_answer = data.get("answer", "").strip()
-                raw_response = data.get("response", "").strip()
+            # Processed answer and response
+            cleaned_answer = extract_ans_from_answer(raw_answer)
+            cleaned_response = extract_real_answers(raw_response)
 
-                # Processed answer and response
-                cleaned_answer = extract_ans_from_answer(raw_answer)
-                cleaned_response = extract_real_answers_from_responses(raw_response)
+            # Count invalid responses
+            if cleaned_response is None:
+                invalid_count += 1
 
-                # Count invalid responses
-                if cleaned_response is None:
-                    invalid_count += 1
+            # Store cleaned data in a dictionary
+            cleaned_entry = {
+                "answer": cleaned_answer,
+                "model": row.get("output.model", ""),
+                "response": cleaned_response if cleaned_response is not None else "INVALID"
+            }
+            cleaned_data.append(cleaned_entry)
+            #print(cleaned_entry)  
+            
+        except Exception as e:
+            print(f"Error processing row {index}: {e}")
 
-                cleaned_entry = {
-                    "answer": cleaned_answer,
-                    "model": data.get("model", ""),
-                    "response": cleaned_response if cleaned_response is not None else "INVALID"
-                }
-                cleaned_data.append(cleaned_entry)
+    # Convert cleaned data into a DataFrame
+    cleaned_df = pd.DataFrame(cleaned_data)
 
-            except json.JSONDecodeError as e:
-                print(f"Error decoding JSON line: {e}")
-
-    # Write cleaned data to new JSONL file
-    with open(output_file, 'w', encoding='utf-8') as outfile:
-        for entry in cleaned_data:
-            json.dump(entry, outfile)
-            outfile.write('\n')  # Ensures newline for JSONL format
-
-    print(f"Post-processing completed. Cleaned data saved to {output_file}")
+    # Return the cleaned DataFrame
     print(f"Number of invalid responses: {invalid_count}")
-    return output_file
+    return cleaned_df
 
 
 # %%
-def evaluate_accuracy(input_file):
+def evaluate_accuracy(df_cleaned):
     """Evaluate accuracy by comparing extracted answers with model responses, including invalid ones."""
     total_responses = 0  # Includes both valid and invalid responses
     correct = 0
@@ -175,34 +175,30 @@ def evaluate_accuracy(input_file):
     model_correct_counts = defaultdict(int)
     model_total_counts = defaultdict(int)
 
-    invalid_responses = []  # Store invalid responses
+    invalid_responses = []  
 
-    with open(input_file, 'r', encoding='utf-8') as infile:
-        for line in infile:
-            try:
-                data = json.loads(line)
-                
-                # Ensure required fields exist
-                real_answer = data.get("answer")
-                model_response = data.get("response")
-                model_name = data.get("model", "Unknown Model")
+    for index, row in df_cleaned.iterrows():
+        try:
+            # Extract real answer and model response from respective columns
+            cleaned_answer = row.get("answer")
+            cleaned_response = row.get("response")
+            model_name = row.get("model", "Unknown Model")
 
-                total_responses += 1  # Count every response, even invalid ones
-                model_total_counts[model_name] += 1  # Track total responses per model
+            total_responses += 1  # Count every response, even invalid ones
+            model_total_counts[model_name] += 1  # Track total responses per model
 
-                # Only consider valid numerical responses
-                if isinstance(model_response, int):
-                    valid_responses += 1
+            # Only consider valid numerical responses (if available)
+            if isinstance(cleaned_response, int):
+                valid_responses += 1
+                if cleaned_response == cleaned_answer:
+                    correct += 1
+                    model_correct_counts[model_name] += 1
+            else:
+                removed_responses += 1
+                invalid_responses.append(cleaned_response) 
 
-                    if model_response == real_answer:
-                        correct += 1
-                        model_correct_counts[model_name] += 1
-                else:
-                    removed_responses += 1
-                    invalid_responses.append(model_response)
-
-            except json.JSONDecodeError as e:
-                print(f"Error decoding JSON line: {e}")
+        except Exception as e:
+            print(f"Error processing row {index}: {e}")
 
     # Calculate overall accuracy over ALL responses (valid + invalid)
     overall_accuracy = (correct / total_responses * 100) if total_responses > 0 else 0
@@ -221,9 +217,10 @@ def evaluate_accuracy(input_file):
     print(f"\nOverall Accuracy: {correct}/{total_responses} correct ({overall_accuracy:.2f}%)")
     print(f"Valid Responses: {valid_responses}, Removed Responses (Invalid): {removed_responses}")
 
-    #if invalid_responses:
-    #    print("\nSample Invalid Responses (First 5):")
-    #    print(invalid_responses[:5])  # Display first 5 invalid responses
+    # Optionally, print a sample of invalid responses
+    if invalid_responses:
+        print("\nSample Invalid Responses (First 5):")
+        print(invalid_responses[:5])  # Display first 5 invalid responses
 
     return {
         "overall_accuracy": overall_accuracy,
@@ -236,13 +233,13 @@ def main(input_file):
     """Processes the outputs of gsm8k dataset, extracts necessary fields, cleans them, and evaluates accuracy."""
 
     print("\n[Step 1] Extracting necessary fields...")
-    extracted_file = extract_and_write_fields(input_file)
+    df_extracted = extract_fields_from_jsonl(input_file, ["indata.answer", "output.model", "output.response"])
     
     print("\n[Step 2] Cleaning extracted responses...")
-    cleaned_file = postprocess_extracted_jsonl_file(extracted_file)
+    df_cleaned = clean_dataframe(df_extracted)
     
     print("\n[Step 3] Evaluating accuracy...")
-    results = evaluate_accuracy(cleaned_file)
+    results = evaluate_accuracy(df_cleaned)
 
     print("\n[Process Complete] Accuracy Evaluation Done.\n")
     
