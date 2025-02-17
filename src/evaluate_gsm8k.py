@@ -176,8 +176,13 @@ def evaluate_accuracy(df_cleaned):
     model_total_counts = defaultdict(int)
 
     invalid_responses = []  
+    evaluation = []
 
     for index, row in df_cleaned.iterrows():
+
+        # Use this variable to check whether response was correct or not at the end of for loop
+        correct_response = False
+
         try:
             # Extract real answer and model response from respective columns
             cleaned_answer = row.get("answer")
@@ -193,12 +198,20 @@ def evaluate_accuracy(df_cleaned):
                 if cleaned_response == cleaned_answer:
                     correct += 1
                     model_correct_counts[model_name] += 1
+                    correct_response = True
             else:
                 removed_responses += 1
                 invalid_responses.append(cleaned_response) 
 
         except Exception as e:
             print(f"Error processing row {index}: {e}")
+
+        if correct_response:
+            evaluation.append(1)
+        else:
+            evaluation.append(0)
+    
+    df_cleaned["evaluation"] = evaluation
 
     # Calculate overall accuracy over ALL responses (valid + invalid)
     overall_accuracy = (correct / total_responses * 100) if total_responses > 0 else 0
@@ -225,7 +238,7 @@ def evaluate_accuracy(df_cleaned):
     return {
         "overall_accuracy": overall_accuracy,
         "model_accuracies": model_accuracies
-    }
+    }, df_cleaned
 
 
 # %%
@@ -239,11 +252,11 @@ def main(input_file):
     df_cleaned = clean_dataframe(df_extracted)
     
     print("\n[Step 3] Evaluating accuracy...")
-    results = evaluate_accuracy(df_cleaned)
+    results, df = evaluate_accuracy(df_cleaned)
 
     print("\n[Process Complete] Accuracy Evaluation Done.\n")
     
-    return results
+    return results, df
 
 
 # %%
@@ -265,7 +278,7 @@ if __name__ == "__main__":
     print("\nStarting processing for:", args.input_file)
 
     # Call the main function
-    results = main(args.input_file)
+    results, df = main(args.input_file)
 
     # Handle the case where no results are returned
     if results is None:

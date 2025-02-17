@@ -247,7 +247,12 @@ def evaluate_accuracy(df):
     df['matched_label'] = "0"
     df['answerKey'] = ""
 
+    evaluation = []
+
     for index in range(len(df)):
+        # Use this variable to check whether response was correct or not at the end of for loop
+        correct_response = False
+
         # if total >= 80 and total < 90:
         response = df['output.response'].iloc[index]
         answerKey = df['indata.target'].iloc[index]
@@ -280,12 +285,20 @@ def evaluate_accuracy(df):
             model_total_counts[model] += 1  # Count valid responses
             if matched_label == "1":
                 model_correct_counts[model] += 1  # Count correct responses
+                correct_response = True
         else:
             removed_responses += 1  # Count discarded responses
             #invalid_responses.append((line.strip(), "No matching label"))  # Capture the raw line as invalid response
 
         total += 1  # Count every response line, whether valid or invalid
+        
+        if correct_response:
+            evaluation.append(1)
+        else:
+            evaluation.append(0)
     
+    df["evaluation"] = evaluation
+
     # Compute accuracy per model
     #print(f"Accuracy evaluation in progress...")
     model_accuracies = {
@@ -301,7 +314,7 @@ def evaluate_accuracy(df):
 
     score = round(model_correct_counts[model] / total * 100, 3)
 
-    return model_accuracies
+    return model_accuracies, df
         
 
 
@@ -312,10 +325,10 @@ def main(input_file):
     df_extracted = extract_fields_from_jsonl(input_file, ["indata.category", "formatted_prompt", "indata.target", "output.model", "output.response"])
     
     print("\n[Step 2] Processing results and evaluating accuracy...")
-    model_accuracies = evaluate_accuracy(df_extracted)
+    model_accuracies, df = evaluate_accuracy(df_extracted)
     
     #print(f"\nModel performance: {model_accuracies}")
-    return model_accuracies
+    return model_accuracies, df
     
 
 # %%
@@ -333,7 +346,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # Call the main function with the parsed argument
-    model_accuracies = main(args.input_file)
+    model_accuracies, df = main(args.input_file)
     
     # Print the results
     print(f"\nModel performance breakdown: {model_accuracies}")

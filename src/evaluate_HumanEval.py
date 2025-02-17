@@ -83,9 +83,17 @@ def evaluate_pass_at_k(df: pd.DataFrame, k=[1]) -> dict:
     # Compute pass@k for each model
     pass_at_k, results = code_eval.compute(references=test_cases, predictions=candidates, k=k)
     
+    evaluation = []
+    for result in results.items():
+        evaluation.append((result[0], result[1][0][1]["passed"]))
+
+    sorted_evaluation = sorted(evaluation)
+    evaluation_list = [x[1] for x in sorted_evaluation]
+    df["evaluation"] = evaluation_list
+
     # Track models and their performances
     model_performance = {model: pass_at_k for model in set(model_list)}
-    return model_performance
+    return model_performance, evaluation_list
 
 # %%
 def main(input_file: str, k_values=[1]):
@@ -102,10 +110,10 @@ def main(input_file: str, k_values=[1]):
     df_cleaned = clean_response(df_extracted, "output.response")
     
     print("\n[Step 3] Evaluating accuracy...")
-    performance = evaluate_pass_at_k(df_cleaned, k=k_values)
+    performance, evaluation_list = evaluate_pass_at_k(df_cleaned, k=k_values)
     
     print(f"\nModel performance: {performance}")
-    return performance
+    return performance, evaluation_list
 
 # %%
 if __name__ == "__main__":

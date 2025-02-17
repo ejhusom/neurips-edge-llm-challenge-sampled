@@ -138,11 +138,16 @@ def evaluate_accuracy(df: pd.DataFrame) -> dict:
 
     invalid_responses = []  # Store invalid responses for debugging
 
+    evaluation = []
+
     for _, row in df.iterrows():
         answer_key = row.get("indata.answerKey")
         choices = row.get("indata.question.choices", [])
         cleaned_response = row.get("cleaned_output.response", "")
         model = row.get("output.model", "unknown_model")
+
+        # Use this variable to check whether response was correct or not at the end of for loop
+        correct_response = False
 
         # Match cleaned response to choice labels
         if cleaned_response:
@@ -154,6 +159,7 @@ def evaluate_accuracy(df: pd.DataFrame) -> dict:
                 
                 if matched_label == answer_key:
                     model_correct_counts[model] += 1  # Count correct responses
+                    correct_response = True
             else:
                 removed_responses += 1  # No valid label found
                 model_total_counts[model] += 1
@@ -162,6 +168,13 @@ def evaluate_accuracy(df: pd.DataFrame) -> dict:
             removed_responses += 1  # Empty response
             model_total_counts[model] += 1
             invalid_responses.append((cleaned_response, "Empty response"))
+
+        if correct_response:
+            evaluation.append(1)
+        else:
+            evaluation.append(0)
+
+    df["evaluation"] = evaluation
 
     # Compute accuracy per model
     model_accuracies = {
@@ -182,7 +195,7 @@ def evaluate_accuracy(df: pd.DataFrame) -> dict:
         for response, reason in invalid_responses[:10]:  # Show first 10 invalid cases
             print(f"Invalid Response: {response} | Reason: {reason}")
 
-    return model_accuracies
+    return model_accuracies, df
 
 
 # %%
@@ -192,12 +205,12 @@ def main(input_file):
     
     print("\n[Step 2] Postprocessing responses...")
     df_cleaned = postprocess_responses(df_extracted, "output.response")
-    
+
     print("\n[Step 3] Evaluating accuracy...")
-    model_accuracies = evaluate_accuracy(df_cleaned)
+    model_accuracies, df = evaluate_accuracy(df_cleaned)
     
     #print(f"\nModel performance: {model_accuracies}")
-    return model_accuracies
+    return model_accuracies, df
     
     
 
@@ -216,7 +229,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # Call the main function with the parsed argument
-    model_accuracies = main(args.input_file)
+    model_accuracies, df = main(args.input_file)
     
     # Print the results
     print(f"Model performance breakdown: {model_accuracies}")

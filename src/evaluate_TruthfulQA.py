@@ -546,7 +546,12 @@ def evaluate_accuracy(df):
     """
     model_results = defaultdict(lambda: {"correct": 0, "invalid": 0, "wrong": 0, "total": 0})
 
+    evaluation = []
+
     for _, row in df.iterrows():
+        # Use this variable to check whether response was correct or not at the end of for loop
+        correct_response = False
+
         model = row["output.model"]
         response = row["output.response"]
         mc1_targets = row["mc1_targets"]  # List of all choices (text only)
@@ -575,11 +580,19 @@ def evaluate_accuracy(df):
             model_results[model]["invalid"] += 1
         elif best_match in correct_mc1:  # Check if best_match is in correct answers list
             model_results[model]["correct"] += 1
+            correct_response = True
         else:
             model_results[model]["wrong"] += 1
 
         # Increment total responses
         model_results[model]["total"] += 1
+
+        if correct_response:
+            evaluation.append(1)
+        else:
+            evaluation.append(0)
+    
+    df["evaluation"] = evaluation
 
     # Compute accuracy per model
     accuracy_results = {
@@ -593,7 +606,7 @@ def evaluate_accuracy(df):
         for model, results in model_results.items()
     }
 
-    return accuracy_results
+    return accuracy_results, df
 
 
 # %%
@@ -604,7 +617,7 @@ def main(input_file):
     df_extracted = extract_fields_from_jsonl(input_file)
     
     print("\n[Step 2] Evaluating accuracy...")
-    results = evaluate_accuracy(df_extracted)
+    results, df = evaluate_accuracy(df_extracted)
 
     print("\n[Process Complete] Accuracy Evaluation Done.\n")
     
@@ -630,7 +643,7 @@ if __name__ == "__main__":
     print("\nStarting processing for:", args.input_file)
 
     # Call the main function
-    results = main(args.input_file)
+    results, df = main(args.input_file)
 
     # Handle the case where no results are returned
     if results is None:
