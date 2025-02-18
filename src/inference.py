@@ -74,7 +74,7 @@ def main():
     parser.add_argument('--dataset_type', type=str, help="Dataset type (e.g., BIG-Bench-Hard, CommonSenseQA, GSM8K, HumanEval, TruthfulQA).")
     parser.add_argument('--test', action='store_true', help="Test the process_prompt function with the first line of the input file.")
     parser.add_argument('--instruction', action='store_true', help="Include instruction in the prompt.")
-    parser.add_argument('--timeout', type=int, default=3600, help="Timeout in seconds for each prompt.")
+    parser.add_argument('--timeout', type=int, default=30, help="Timeout in seconds for each prompt.")
 
     args = parser.parse_args()
 
