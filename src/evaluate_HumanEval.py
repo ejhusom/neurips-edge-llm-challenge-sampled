@@ -93,7 +93,7 @@ def evaluate_pass_at_k(df: pd.DataFrame, k=[1]) -> dict:
 
     # Track models and their performances
     model_performance = {model: pass_at_k for model in set(model_list)}
-    return model_performance, evaluation_list
+    return model_performance, df
 
 # %%
 def main(input_file: str, k_values=[1]):
@@ -110,10 +110,10 @@ def main(input_file: str, k_values=[1]):
     df_cleaned = clean_response(df_extracted, "output.response")
     
     print("\n[Step 3] Evaluating accuracy...")
-    performance, evaluation_list = evaluate_pass_at_k(df_cleaned, k=k_values)
+    performance, df = evaluate_pass_at_k(df_cleaned, k=k_values)
     
     print(f"\nModel performance: {performance}")
-    return performance, evaluation_list
+    return performance, df
 
 # %%
 if __name__ == "__main__":

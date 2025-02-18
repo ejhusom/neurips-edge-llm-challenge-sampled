@@ -621,7 +621,7 @@ def main(input_file):
 
     print("\n[Process Complete] Accuracy Evaluation Done.\n")
     
-    return results
+    return results, df
 
 
 # %%
