@@ -94,7 +94,6 @@ def get_model_name(file_name):
     parts = file_name.split(".")[0].split('_')
     return "_".join(parts[1:])
 
-
 if __name__ == '__main__':
 
     filepaths = sys.argv[1:]
