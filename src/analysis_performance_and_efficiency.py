@@ -9,6 +9,7 @@ Plots:
 
 """
 import os
+import re
 import sys
 
 import json
@@ -30,9 +31,9 @@ def calculate_accuracy_for_df(df):
 
     return df["evaluation"].sum() / len(df["evaluation"])
 
-def calculate_energy_consumption_for_df(df):
+def calculate_statistics_for_df(df, column="energy_consumption_joules"):
 
-    energy_consumption = {
+    statistics = {
             "mean": None,
             "std": None,
             "median": None,
@@ -43,7 +44,17 @@ def calculate_energy_consumption_for_df(df):
             "IQR": None,
     }
 
-    return energy_consumption
+    # Column is named "energy_consumption_joules" in the dataframe
+    statistics["mean"] = df[column].mean()
+    statistics["std"] = df[column].std()
+    statistics["median"] = df[column].median()
+    statistics["minimum"] = df[column].min()
+    statistics["maximum"] = df[column].max()
+    statistics["Q1"] = df[column].quantile(0.25)
+    statistics["Q3"] = df[column].quantile(0.75)
+    statistics["IQR"] = statistics["Q3"] - statistics["Q1"]
+
+    return statistics
 
 def get_color_for_model(model_name):
 
@@ -56,6 +67,18 @@ def get_color_for_model(model_name):
         "llama32_1b": "green",
     }
     return colors.get(model_base_name, "gray")
+
+def plot_legend(ax):
+    colors = {
+        "qwen25_05b": "skyblue",
+        "qwen25_15b": "blue",
+        "gemma2_2b": "orange",
+        "llama32_1b": "green",
+    }
+
+    handles = [plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=color, markersize=10) for color in colors.values()]
+    labels = colors.keys()
+    ax.legend(handles, labels, title="Base model", loc='best')
 
 def get_model_info(filepath="ollama_models.json"):
 
@@ -161,24 +184,58 @@ def plot_accuracy_separate_datasets(accuracy):
         plt.savefig(f"accuracy_comparison_{dataset}.pdf")
         plt.show()
 
-def plot_accuracy_vs_model_size(accuracy):
+def plot_metric_vs_model_size(metric, name=""):
+
+    datasets = set()
+    for model in metric:
+        datasets.update(metric[model].keys())
+
+    datasets = sorted(datasets)
 
     model_info = get_model_info()
 
-    fig, ax = plt.subplots(figsize=(12, 6))
-    ax.set_title("Accuracy vs model size")
-    ax.set_xlabel("Model size (bytes)")
-    ax.set_ylabel("Accuracy")
-    ax.set_xlim(0, 1)
+    for dataset in datasets:
 
-    for model in accuracy:
-        breakpoint()
-        model_size = model_info[model.replace("_", ":", 1).replace("_", "-", 2)]["size"]
-        ax.scatter(model_size, accuracy[model], color=get_color_for_model(model))
+        fig, ax = plt.subplots(figsize=(8, 5))
+        ax.set_title(f"{name} vs model size – {dataset}")
+        ax.set_xlabel("Model size (bytes)")
+        ax.set_ylabel("{name}")
 
-    plt.tight_layout()
-    plt.savefig("accuracy_vs_model_size.png")
-    plt.show()
+        models = []
+        metrics = []
+        model_sizes = []
+        colors = []
+
+        for model in metric:
+            if dataset in metric[model]:
+                models.append(model)
+                metrics.append(metric[model][dataset])
+                colors.append(get_color_for_model(model))
+
+                # Translate model to model key. Need to handle cases like:
+                #   qwen25_05b_instruct_q4_0 -> qwen2.5:0.5b-instruct-q4_0
+                #   qwen25_15b_instruct_q4_0 -> qwen2.5:1.5b-instruct-q4_0
+                #   llama32_1b_instruct_q3_K_L -> llama3.2:1b-instruct-q3_K_L
+                #   gemma2_2b_instruct_q3_K_L -> gemma2:2b-instruct-q3_K_L
+                model_key = model.replace("_", ":", 1).replace("_", "-", 2)
+                # Use regex to put a dot between cases where there are two numbers.
+                # FIXME: This will break for models with >=10b parameters. Need to change the filename format to handle this.
+                model_key = re.sub(r"(\d)(\d)", r"\1.\2", model_key, count=2)
+
+                model_key = next((item['model'] for item in model_info['models'] if item['name'] == model_key), None)
+
+                if model_key:
+                    model_size = next(item['size'] for item in model_info['models'] if item['model'] == model_key)
+                    model_sizes.append(model_size)
+
+        ax.scatter(model_sizes, metrics, color=colors)
+        plot_legend(ax)
+
+        plt.tight_layout()
+        plt.savefig(f"{name}_vs_model_size_{dataset}.pdf")
+        plt.show()
+
+
 
 if __name__ == '__main__':
 
@@ -198,6 +255,9 @@ if __name__ == '__main__':
     #       model -> dataset -> energy consumption -> mean, std, IQR, etc
     accuracy = {}
     energy_consumption = {}
+    energy_consumption_mean = {}
+    energy_consumption_per_token = {}
+    energy_consumption_mean_per_token = {}
 
     for filepath in filepaths:
         filename = os.path.basename(filepath)
@@ -207,16 +267,23 @@ if __name__ == '__main__':
         print(f"Processing {model} on {dataset}...")
         
         df = pd.read_csv(filepath, index_col=0)
+        df["energy_consumption_joules_per_token"] = df["energy_consumption_joules"] / df["eval_count"]
 
         # Calculate performance
         if not model in accuracy:
             accuracy[model] = {}
             energy_consumption[model] = {}
+            energy_consumption_mean[model] = {}
+            energy_consumption_per_token[model] = {}
+            energy_consumption_mean_per_token[model] = {}
 
         accuracy[model][dataset] = calculate_accuracy_for_df(df)
         print(f"Accuracy: {accuracy[model][dataset]}")
 
-        energy_consumption[model][dataset] = calculate_energy_consumption_for_df(df)
+        energy_consumption[model][dataset] = calculate_statistics_for_df(df, "energy_consumption_joules")
+        energy_consumption_per_token[model][dataset] = calculate_statistics_for_df(df, "energy_consumption_joules_per_token")
+        energy_consumption_mean[model][dataset] = energy_consumption[model][dataset]["mean"]
+        energy_consumption_mean_per_token[model][dataset] = energy_consumption_per_token[model][dataset]["mean"]
         print(f"Energy consumption (mean): {energy_consumption[model][dataset]['mean']}")
 
         print("========================")
@@ -232,5 +299,8 @@ if __name__ == '__main__':
     # Plot the results
     # plot_accuracy_subplots_vertical_bars(accuracy)
     # plot_accuracy_subplots_horizontal_bars(accuracy)
-    plot_accuracy_separate_datasets(accuracy)
-    # plot_accuracy_vs_model_size(accuracy)
+    # plot_accuracy_separate_datasets(accuracy)
+    # plot_metric_vs_model_size(accuracy, "Accuracy")
+
+    plot_metric_vs_model_size(energy_consumption_mean, "Energy consumption (J)")
+    plot_metric_vs_model_size(energy_consumption_mean_per_token, "Energy consumption per token (J)")

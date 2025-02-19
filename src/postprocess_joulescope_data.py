@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-from datetime import datetime
+import os
 import sys
+from datetime import datetime
+
 import pandas as pd
 from pyjls import Reader
 
@@ -62,8 +64,6 @@ def read_joulescope_statistics_data(filepath, start_time, stop_time):
 
 if __name__ == '__main__':
 
-
-
     joulescope_statistics_folderpath = sys.argv[1]
     llm_data_filepaths = sys.argv[2:]
 
@@ -76,20 +76,57 @@ if __name__ == '__main__':
 
     # Find timestamps from the joulescope data filepaths, which are in this format:
     #   20250122_093117-JS110-000436.csv
-    joulescope_timestamps = []
+    joulescope_filepath_dict = {}
     for joulescope_data_filepath in joulescope_data_filepaths:
-        timestamp = joulescope_data_filepath.split("-")[0]
+        basename = os.path.basename(joulescope_data_filepath)
+        timestamp = basename.split("-")[0]
         # Turn the timestamps into datetime objects
-        joulescope_timestamps.append(datetime.strptime(timestamp, "%Y%m%d_%H%M%S"))
+        datetime_timestamp = datetime.strptime(timestamp, "%Y%m%d_%H%M%S")
+        joulescope_filepath_dict[datetime_timestamp] = joulescope_data_filepath
 
     for llm_data_filepath in llm_data_filepaths:
 
         df = pd.read_csv(llm_data_filepath)
+        df["energy_consumption_joules"] = None
 
         # Find which joulescope data file to use
-        # Use the first timestamp of the llm data to find the corresponding joulescope data, which is the closest one back in time
-        llm_timestamp = datetime.strptime(df["created_at"][0], "%Y-%m-%d %H:%M:%S.%f%z")
-        closest_joulescope_timestamp = min(joulescope_timestamps, key=lambda x: abs(x - llm_timestamp))
+        # Use the first timestamp of the llm data to find the corresponding joulescope data, which is the closest one back in time. Only back in time, not forward.
+        first_llm_timestamp = df["created_at"][0]
+        llm_timestamp = pd.to_datetime(first_llm_timestamp, format="%Y-%m-%d %H:%M:%S.%f%z").replace(tzinfo=None)
+        # Find all joulescope_timestamps preceeding llm_timestamp
+        preceeding_joulescope_timestamps = [timestamp for timestamp in joulescope_filepath_dict.keys() if timestamp < llm_timestamp]
+        # Find the closest one
+        closest_joulescope_timestamp = max(preceeding_joulescope_timestamps)
+        # Find the corresponding joulescope data filepath
+        current_joulescope_data_filepath = joulescope_filepath_dict[closest_joulescope_timestamp]
+
+        print(llm_data_filepath)
+        print(current_joulescope_data_filepath)
+
+        joulescope_data = pd.read_csv(current_joulescope_data_filepath)
+        joulescope_data["timestamp"] = closest_joulescope_timestamp + pd.to_timedelta(joulescope_data["#time"], unit="s")
 
         # Get energy consumption for each inference
-        # for index, row in df.iterrows():
+        for index, row in df.iterrows():
+            start_time = pd.to_datetime(row["created_at"]). replace(tzinfo=None)
+
+            stop_time = pd.to_datetime(row["stopped_at"]). replace(tzinfo=None)
+
+            if pd.isnull(stop_time):
+                try:
+                    stop_time = pd.to_datetime(df.loc[index+1, "created_at"]). replace(tzinfo=None)
+                except:
+                    continue
+
+
+            closest_idx_start = (joulescope_data["timestamp"] - start_time).abs().idxmin()
+            closest_idx_stop = (joulescope_data["timestamp"] - stop_time).abs().idxmin()
+
+            energy_consumption_start = joulescope_data.loc[closest_idx_start, "energy"]
+            energy_consumption_stop = joulescope_data.loc[closest_idx_stop, "energy"]
+            energy_consumption = energy_consumption_stop - energy_consumption_start
+            df.loc[index, "energy_consumption_joules"] = energy_consumption
+
+        df.to_csv(llm_data_filepath.replace("llm_responses", "llm_responses_with_energy_consumption"), index=False)
+        print(f"Saved {llm_data_filepath.replace('.csv', '_with_energy_consumption.csv')}")
+        
