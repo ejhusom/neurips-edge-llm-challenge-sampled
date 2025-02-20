@@ -187,6 +187,94 @@ class EnergyAnalyzer:
         
         return pd.DataFrame(rows)
     
+    def analyze_quantization_impact(self, dataset_name: str = None):
+        """Analyze the impact of quantization on energy consumption and accuracy"""
+        # Group models by family (excluding quantization level)
+        model_families = {}
+        for (ds_name, model_name), metrics in self.metrics.items():
+            if dataset_name is None or ds_name.lower() == dataset_name.lower():
+                # Extract base model name (family) by removing quantization part
+                base_model = "_".join(model_name.split("_")[:3])  # Adjust based on your naming convention
+                if base_model not in model_families:
+                    model_families[base_model] = []
+                model_families[base_model].append({
+                    'full_name': model_name,
+                    'quantization': metrics.quantization_level,
+                    'energy': metrics.mean_energy,
+                    'accuracy': metrics.accuracy,
+                    'dataset': ds_name
+                })
+
+        # Create figure with two subplots
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+        
+        # Process each model family
+        for base_model, variants in model_families.items():
+            if len(variants) < 2:  # Skip if only one quantization level
+                continue
+                
+            # Find the baseline (non-quantized or highest precision) variant
+            # Assuming the variant with the highest energy consumption is the baseline
+            baseline = max(variants, key=lambda x: x['energy'])
+            
+            # Calculate relative changes
+            relative_metrics = []
+            for variant in variants:
+                relative_metrics.append({
+                    'Model': base_model,
+                    'Quantization': variant['quantization'],
+                    'Energy Saving (%)': 100 * (1 - variant['energy'] / baseline['energy']),
+                    'Accuracy Loss (pp)': 100 * (baseline['accuracy'] - variant['accuracy'])
+                })
+            
+            # Plot energy savings
+            ax1.scatter(
+                [m['Quantization'] for m in relative_metrics],
+                [m['Energy Saving (%)'] for m in relative_metrics],
+                label=base_model,
+                marker='o'
+            )
+            
+            # Plot accuracy loss
+            ax2.scatter(
+                [m['Quantization'] for m in relative_metrics],
+                [m['Accuracy Loss (pp)'] for m in relative_metrics],
+                label=base_model,
+                marker='o'
+            )
+            
+            # Connect points with lines
+            ax1.plot(
+                [m['Quantization'] for m in relative_metrics],
+                [m['Energy Saving (%)'] for m in relative_metrics],
+                alpha=0.5
+            )
+            ax2.plot(
+                [m['Quantization'] for m in relative_metrics],
+                [m['Accuracy Loss (pp)'] for m in relative_metrics],
+                alpha=0.5
+            )
+
+        # Customize plots
+        ax1.set_title('Energy Savings by Quantization Level')
+        ax1.set_xlabel('Quantization Level')
+        ax1.set_ylabel('Energy Saving (%)')
+        ax1.grid(True, alpha=0.3)
+        ax1.tick_params(axis='x', rotation=45)
+        
+        ax2.set_title('Accuracy Impact by Quantization Level')
+        ax2.set_xlabel('Quantization Level')
+        ax2.set_ylabel('Accuracy Loss (percentage points)')
+        ax2.grid(True, alpha=0.3)
+        ax2.tick_params(axis='x', rotation=45)
+        
+        # Add legend
+        handles, labels = ax1.get_legend_handles_labels()
+        fig.legend(handles, labels, loc='center right', bbox_to_anchor=(1.15, 0.5))
+        
+        plt.tight_layout()
+        return fig
+
     def analyze_token_length_impact(self, dataset_name: str = None):
         """Analyze relationship between token length and energy consumption"""
         plt.figure(figsize=(12, 8))
@@ -229,6 +317,7 @@ def main():
         'energy_accuracy': analyzer.plot_energy_accuracy_tradeoff(args.dataset),
         'energy_distribution': analyzer.plot_energy_distribution(args.dataset),
         'token_impact': analyzer.analyze_token_length_impact(args.dataset)
+        'quantization_impact': analyzer.analyze_quantization_impact(args.dataset)
     }
     
     for name, fig in plots.items():
