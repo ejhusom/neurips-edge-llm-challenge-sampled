@@ -184,6 +184,41 @@ def plot_accuracy_separate_datasets(accuracy):
         plt.savefig(f"accuracy_comparison_{dataset}.pdf")
         plt.show()
 
+def plot_energy_consumption_subplots_vertical_bars(energy_consumption):
+    # Plot the energy consumption results
+    datasets = set()
+    for model in energy_consumption:
+        datasets.update(energy_consumption[model].keys())
+
+    datasets = sorted(datasets)
+    num_datasets = len(datasets)
+
+    fig, axes = plt.subplots(num_datasets, 1, figsize=(8, 2 * num_datasets), sharex=True)
+    if num_datasets == 1:
+        axes = [axes]
+
+    for ax, dataset in zip(axes, datasets):
+        ax.set_title(f"Energy consumption for {dataset}")
+        ax.set_xlabel("Model")
+        ax.set_ylabel("Energy consumption (J)")
+
+        models = []
+        energy_consumptions = []
+        colors = []
+
+        for model in energy_consumption:
+            if dataset in energy_consumption[model]:
+                models.append(model)
+                energy_consumptions.append(energy_consumption[model][dataset]["mean"])
+                colors.append(get_color_for_model(model))
+
+        ax.bar(models, energy_consumptions, color=colors)
+        ax.set_xticklabels(models, rotation=45, ha='right')
+
+    plt.tight_layout()
+    plt.savefig("energy_consumption_comparison.png")
+    plt.show()
+
 def plot_metric_vs_model_size(metric, name=""):
 
     datasets = set()
@@ -253,6 +288,7 @@ if __name__ == '__main__':
     #       model -> dataset -> accuracy
     #   Energy consumption:
     #       model -> dataset -> energy consumption -> mean, std, IQR, etc
+    all_data = {}
     accuracy = {}
     energy_consumption = {}
     energy_consumption_mean = {}
@@ -271,11 +307,14 @@ if __name__ == '__main__':
 
         # Calculate performance
         if not model in accuracy:
+            all_data[model] = {}
             accuracy[model] = {}
             energy_consumption[model] = {}
             energy_consumption_mean[model] = {}
             energy_consumption_per_token[model] = {}
             energy_consumption_mean_per_token[model] = {}
+
+        all_data[model][dataset] = df
 
         accuracy[model][dataset] = calculate_accuracy_for_df(df)
         print(f"Accuracy: {accuracy[model][dataset]}")
@@ -288,10 +327,16 @@ if __name__ == '__main__':
 
         print("========================")
 
+    breakpoint()
+
     accuracy_filepath = "accuracy_all_models.json"
+    energy_consumption_filepath = "energy_consumption_all_models.json"
 
     with open(accuracy_filepath, "w+") as outfile:
         json.dump(accuracy, outfile, indent=4)
+
+    with open(energy_consumption_filepath, "w+") as outfile:
+        json.dump(energy_consumption, outfile, indent=4)
 
     print("Final results:")
     print(accuracy)
@@ -302,5 +347,6 @@ if __name__ == '__main__':
     # plot_accuracy_separate_datasets(accuracy)
     # plot_metric_vs_model_size(accuracy, "Accuracy")
 
-    plot_metric_vs_model_size(energy_consumption_mean, "Energy consumption (J)")
-    plot_metric_vs_model_size(energy_consumption_mean_per_token, "Energy consumption per token (J)")
+    # plot_energy_consumption_subplots_vertical_bars(energy_consumption)
+    # plot_metric_vs_model_size(energy_consumption_mean, "Energy consumption (J)")
+    # plot_metric_vs_model_size(energy_consumption_mean_per_token, "Energy consumption per token (J)")
