@@ -56,11 +56,6 @@ def read_jsl_data(filepath):
 
     return None
 
-def read_joulescope_statistics_data(filepath, start_time, stop_time):
-
-    pass
-    
-
 
 if __name__ == '__main__':
 
@@ -88,6 +83,7 @@ if __name__ == '__main__':
 
         df = pd.read_csv(llm_data_filepath)
         df["energy_consumption_joules"] = None
+        df["tokens_per_second"] = df["eval_count"] / (df["eval_duration"] * 10**-9)
 
         # Find which joulescope data file to use
         # Use the first timestamp of the llm data to find the corresponding joulescope data, which is the closest one back in time. Only back in time, not forward.
@@ -127,6 +123,7 @@ if __name__ == '__main__':
             energy_consumption = energy_consumption_stop - energy_consumption_start
             df.loc[index, "energy_consumption_joules"] = energy_consumption
 
+
         df.to_csv(llm_data_filepath.replace("llm_responses", "llm_responses_with_energy_consumption"), index=False)
         print(f"Saved {llm_data_filepath.replace('.csv', '_with_energy_consumption.csv')}")
-        
+

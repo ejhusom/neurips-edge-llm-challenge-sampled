@@ -96,6 +96,10 @@ def get_model_name(file_name):
 
 if __name__ == '__main__':
 
+    if len(sys.argv) < 2:
+        print("Usage: postprocess_llm_responses.py <file1.jsonl> <file2.jsonl> ...")
+        sys.exit(1)
+
     filepaths = sys.argv[1:]
 
     for filepath in filepaths:

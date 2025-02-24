@@ -120,10 +120,18 @@ def plot_accuracy_subplots_vertical_bars(accuracy):
         ax.set_xticklabels(models, rotation=45, ha='right')
 
     plt.tight_layout()
-    plt.savefig("accuracy_comparison.png")
+    plt.savefig("accuracy_comparison.pdf")
     plt.show()
 
 def plot_accuracy_subplots_horizontal_bars(accuracy):
+
+    datasets = set()
+    for model in accuracy:
+        datasets.update(accuracy[model].keys())
+
+    datasets = sorted(datasets)
+    num_datasets = len(datasets)
+
     # Plot the accuracy results in a horizontal bar plot
     fig, axes = plt.subplots(num_datasets, 1, figsize=(12, 6 * num_datasets), sharey=True)
     if num_datasets == 1:
@@ -149,7 +157,7 @@ def plot_accuracy_subplots_horizontal_bars(accuracy):
         ax.set_yticklabels(models, rotation=0, ha='right')
 
     plt.tight_layout()
-    plt.savefig("accuracy_comparison_horizontal.png")
+    plt.savefig("accuracy_comparison_horizontal.pdf")
     plt.show()
 
 def plot_accuracy_separate_datasets(accuracy):
@@ -185,7 +193,7 @@ def plot_accuracy_separate_datasets(accuracy):
         plt.show()
 
 def plot_energy_consumption_subplots_vertical_bars(energy_consumption):
-    # Plot the energy consumption results
+    # plot the energy consumption results
     datasets = set()
     for model in energy_consumption:
         datasets.update(energy_consumption[model].keys())
@@ -327,8 +335,6 @@ if __name__ == '__main__':
 
         print("========================")
 
-    breakpoint()
-
     accuracy_filepath = "accuracy_all_models.json"
     energy_consumption_filepath = "energy_consumption_all_models.json"
 
@@ -342,10 +348,10 @@ if __name__ == '__main__':
     print(accuracy)
 
     # Plot the results
-    # plot_accuracy_subplots_vertical_bars(accuracy)
-    # plot_accuracy_subplots_horizontal_bars(accuracy)
-    # plot_accuracy_separate_datasets(accuracy)
-    # plot_metric_vs_model_size(accuracy, "Accuracy")
+    plot_accuracy_subplots_vertical_bars(accuracy)
+    plot_accuracy_subplots_horizontal_bars(accuracy)
+    plot_accuracy_separate_datasets(accuracy)
+    plot_metric_vs_model_size(accuracy, "Accuracy")
 
     # plot_energy_consumption_subplots_vertical_bars(energy_consumption)
     # plot_metric_vs_model_size(energy_consumption_mean, "Energy consumption (J)")
