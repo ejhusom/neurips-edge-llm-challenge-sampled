@@ -176,7 +176,7 @@ class EnergyAnalyzer:
         ]
         
         # Create plot
-        plt.figure(figsize=(9, 7))
+        plt.figure(figsize=(7, 6))
         
         # Plot non-Pareto points
         non_pareto = df[~df['Pareto_Optimal']]
@@ -246,6 +246,7 @@ class EnergyAnalyzer:
         
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
+        plt.savefig("output/energy_accuracy_tradeoff.pdf")
         return plt.gcf() 
     
     def plot_energy_distribution(self, dataset_name: str = None, per_token=False, log_scale=False, subplots=False):
@@ -311,6 +312,7 @@ class EnergyAnalyzer:
             plt.title('Energy Consumption Distribution by Model')
             plt.tight_layout()
         
+        plt.savefig("output/energy_distribution.pdf")
         return plt.gcf()
     
     def generate_summary_table(self) -> pd.DataFrame:
@@ -732,8 +734,9 @@ class EnergyAnalyzer:
         plt.xlabel('Average Accuracy')
         plt.title('Average Accuracy Across Models and Datasets')
         plt.tight_layout()
-        plt.savefig("average_accuracy_across_models_datasets.pdf")
-        plt.show()
+        # plt.savefig("average_accuracy_across_models_datasets.pdf")
+        # plt.show()
+        return plt.gcf()
 
     def plot_average_accuracy_per_dataset(self):
         """Plot the average accuracy across models per dataset, grouped by dataset."""
@@ -790,7 +793,7 @@ class EnergyAnalyzer:
                 if dataset in accuracy[model]:
                     models.append(model)
                     accuracies.append(accuracy[model][dataset])
-                    colors.append(utils.get_color_for_model(model))
+                    colors.append(self.colors.get(dataset, 'gray'))
                 else:
                     models.append(model)
                     accuracies.append(0)
@@ -800,10 +803,11 @@ class EnergyAnalyzer:
             ax.set_xticklabels(models, rotation=45, ha='right')
 
         # Add legend
-        utils.plot_legend(axes[0], location='outside')
+        # utils.plot_legend(axes[0], location='outside')
         plt.tight_layout()
-        plt.savefig("accuracy_comparison.pdf")
-        plt.show()
+        # plt.savefig("accuracy_comparison.pdf")
+        # plt.show()
+        return plt.gcf()
 
     def plot_tokens_per_second(self):
         """Plot the tokens per second for all models."""
@@ -857,15 +861,15 @@ class EnergyAnalyzer:
         plt.legend(dataset_handles, dataset_labels, title='Dataset', bbox_to_anchor=(0.35, -0.23), loc='lower center', ncol=2)
 
         plt.tight_layout()
-        plt.savefig("tokens_per_second.pdf")
-        # plt.show()
+        # plt.savefig("output/tokens_per_second.pdf")
+        return plt.gcf()
 
 
 def main():
     parser = argparse.ArgumentParser(description='Analyze LLM energy consumption data')
     parser.add_argument('files', nargs='+', help='CSV files to analyze')
     parser.add_argument('--dataset', help='Filter analysis to specific dataset')
-    parser.add_argument('--output-dir', default='outputs', help='Directory for output files')
+    parser.add_argument('--output-dir', default='output', help='Directory for output files')
     args = parser.parse_args()
     
     # Create output directory if it doesn't exist
@@ -876,17 +880,20 @@ def main():
     
     # Generate and save plots
     plots = {
-        'energy_accuracy': analyzer.plot_energy_accuracy_tradeoff(args.dataset),
+        # 'energy_accuracy': analyzer.plot_energy_accuracy_tradeoff(args.dataset),
         'energy_accuracy_log': analyzer.plot_energy_accuracy_tradeoff(args.dataset, log_scale=True),
-        'energy_distribution': analyzer.plot_energy_distribution(args.dataset),
-        'energy_distribution_log': analyzer.plot_energy_distribution(args.dataset, log_scale=True),
-        'energy_distribution_per_token': analyzer.plot_energy_distribution(args.dataset, per_token=True),
-        'energy_distribution_per_token_log': analyzer.plot_energy_distribution(args.dataset, per_token=True, log_scale=True),
-        'energy_distribution_subplots': analyzer.plot_energy_distribution(args.dataset, subplots=True),
-        'energy_distribution_subplots_log': analyzer.plot_energy_distribution(args.dataset, log_scale=True, subplots=True),
-        'token_impact': analyzer.analyze_token_length_impact(args.dataset),
-        # 'quantization_impact': analyzer.analyze_quantization_impact2(args.dataset)
-        'size_impact': analyzer.plot_energy_per_token_vs_size(args.dataset),
+        # 'energy_distribution': analyzer.plot_energy_distribution(args.dataset),
+        # 'energy_distribution_log': analyzer.plot_energy_distribution(args.dataset, log_scale=True),
+        # 'energy_distribution_per_token': analyzer.plot_energy_distribution(args.dataset, per_token=True),
+        # 'energy_distribution_per_token_log': analyzer.plot_energy_distribution(args.dataset, per_token=True, log_scale=True),
+        # 'energy_distribution_subplots': analyzer.plot_energy_distribution(args.dataset, subplots=True),
+        # 'energy_distribution_subplots_log': analyzer.plot_energy_distribution(args.dataset, log_scale=True, subplots=True),
+        # 'token_impact': analyzer.analyze_token_length_impact(args.dataset),
+        # # 'quantization_impact': analyzer.analyze_quantization_impact2(args.dataset)
+        # 'size_impact': analyzer.plot_energy_per_token_vs_size(args.dataset),
+        # 'tokens_per_second': analyzer.plot_tokens_per_second()
+        # 'accuracy_comparison': analyzer.plot_accuracy_subplots_vertical_bars()
+        # 'average_accuracy': analyzer.plot_average_accuracy()
     }
     
     for name, fig in plots.items():
@@ -906,12 +913,6 @@ def main():
     energy_latex_table = analyzer.generate_energy_latex_table()
     with open(Path(args.output_dir) / "energy_table.tex", "w") as f:
         f.write(energy_latex_table)
-    
-    # Plot and save average accuracy
-    # analyzer.plot_average_accuracy()
-    # analyzer.plot_average_accuracy_per_dataset()
-    # analyzer.plot_accuracy_subplots_vertical_bars()
-    analyzer.plot_tokens_per_second()
 
     # Print some basic statistics
     print("\nSummary Statistics:")
