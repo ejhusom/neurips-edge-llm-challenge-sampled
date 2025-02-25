@@ -7,6 +7,7 @@ import argparse
 from typing import List, Dict, Tuple
 from dataclasses import dataclass
 import utils
+import re
 
 from adjustText import adjust_text
 
@@ -691,6 +692,12 @@ class EnergyAnalyzer:
         df = pd.DataFrame(accuracy_data)
         pivot_df = df.pivot(index='Model', columns='Dataset', values='Accuracy')
 
+        # Add a column for the average accuracy across datasets for each model
+        pivot_df['Average Accuracy'] = pivot_df.mean(axis=1)
+
+        # Add a row for the average accuracy across models for each dataset
+        pivot_df.loc['Average Accuracy'] = pivot_df.mean(axis=0)
+
         latex_table = pivot_df.to_latex(
             float_format="%.2f",
             na_rep="-",
@@ -715,6 +722,12 @@ class EnergyAnalyzer:
         
         df = pd.DataFrame(energy_data)
         pivot_df = df.pivot(index='Model', columns='Dataset', values='Mean Energy per Token (J/tok)')
+
+        # Add a column for the average energy consumption across datasets for each model
+        pivot_df['Average Energy per Token (J/tok)'] = pivot_df.mean(axis=1)
+
+        # Add a row for the average energy consumption across models for each dataset
+        pivot_df.loc['Average Energy per Token (J/tok)'] = pivot_df.mean(axis=0)
 
         latex_table = pivot_df.to_latex(
             float_format="%.2f",
@@ -880,6 +893,253 @@ class EnergyAnalyzer:
         # plt.savefig("output/tokens_per_second.pdf")
         return plt.gcf()
 
+    def plot_model_size_vs_metrics(self, fit_regression=False, in_bytes=False, log_scale=True):
+        """Plot model size against accuracy and energy consumption."""
+        metrics_list = []
+        model_info = utils.get_model_info()
+
+        for (ds_name, model_name), metrics in self.metrics.items():
+            # Extract model size from name (e.g., "llama_7b" -> 7)
+            size = None
+            if in_bytes:
+                # Translate model to model key. Need to handle cases like:
+                #   qwen25_05b_instruct_q4_0 -> qwen2.5:0.5b-instruct-q4_0
+                #   qwen25_15b_instruct_q4_0 -> qwen2.5:1.5b-instruct-q4_0
+                #   llama32_1b_instruct_q3_K_L -> llama3.2:1b-instruct-q3_K_L
+                #   gemma2_2b_instruct_q3_K_L -> gemma2:2b-instruct-q3_K_L
+                model_key = model_name.replace("_", ":", 1).replace("_", "-", 2)
+                model_key = re.sub(r"(\d)(\d)(?=\D)", r"\1.\2", model_key, count=2)
+                model_key = next((item['model'] for item in model_info['models'] if item['name'] == model_key), None)
+                if model_key:
+                    size = next(item['size'] for item in model_info['models'] if item['model'] == model_key)
+            else:
+                name_parts = model_name.split('_')
+                for part in name_parts:
+                    if part.lower().endswith('b'):
+                        try:
+                            size = float(part[:-1])  # Remove 'b' and convert to float
+                        except ValueError:
+                            continue
+            
+            if size is not None:
+                model_family = "_".join(model_name.split('_')[:2])  # e.g., "llama_2"
+                metrics_list.append({
+                    'Model': model_name,
+                    'Dataset': ds_name,
+                    'Size': size,
+                    'Mean Energy per Token (J)': metrics.mean_energy_per_token,
+                    'Accuracy': metrics.accuracy,
+                    'Quantization': metrics.quantization_level,
+                    'Model Family': model_family
+                })
+        
+        df = pd.DataFrame(metrics_list)
+        
+        # Plot model size vs accuracy
+        datasets = df['Dataset'].unique()
+        num_datasets = len(datasets)
+        fig, axes = plt.subplots(num_datasets, 1, figsize=(10, 5 * num_datasets), sharex=True)
+        if num_datasets == 1:
+            axes = [axes]
+
+        for ax, dataset in zip(axes, datasets):
+            dataset_df = df[df['Dataset'] == dataset]
+            sns.scatterplot(
+                data=dataset_df,
+                x='Size',
+                y='Accuracy',
+                hue='Model Family',
+                style='Quantization',
+                s=100,
+                ax=ax,
+                palette=self.colors
+            )
+            ax.set_title(f'Model Size vs Accuracy for {dataset}')
+            ax.set_xlabel('Model Size (Bytes)' if in_bytes else 'Model Size (Billion Parameters)')
+            ax.set_ylabel('Accuracy')
+            if log_scale:
+                ax.set_xscale('log')
+            ax.grid(True, alpha=0.3)
+            if fit_regression:
+                from sklearn.linear_model import LinearRegression
+                x = dataset_df['Size'].values.reshape(-1, 1)
+                y = dataset_df['Accuracy'].values
+                model = LinearRegression()
+                model.fit(np.log(x) if log_scale else x, y)
+                x_trend = np.array([dataset_df['Size'].min(), dataset_df['Size'].max()])
+                y_trend = model.predict(np.log(x_trend.reshape(-1, 1)) if log_scale else x_trend.reshape(-1, 1))
+                ax.plot(x_trend, y_trend, 'k--', alpha=0.5, label=f'Trend (slope: {model.coef_[0]:.2e})')
+                ax.legend()
+
+        plt.tight_layout()
+        accuracy_figure = plt.gcf()
+
+        # Plot model size vs energy consumption
+        plt.figure(figsize=(10, 7))
+        sns.scatterplot(
+            data=df,
+            x='Size',
+            y='Mean Energy per Token (J)',
+            hue='Dataset',
+            style='Quantization',
+            s=100,
+            palette=self.colors
+        )
+        if log_scale:
+            plt.xscale('log')
+            plt.yscale('log')
+        plt.xlabel('Model Size (Bytes)' if in_bytes else 'Model Size (Billion Parameters)')
+        plt.ylabel('Mean Energy per Token (Joules)')
+        plt.title('Model Size vs Mean Energy per Token')
+        plt.grid(True, alpha=0.3)
+        if fit_regression:
+            x = df['Size'].values.reshape(-1, 1)
+            y = df['Mean Energy per Token (J)'].values
+            model = LinearRegression()
+            model.fit(np.log(x) if log_scale else x, np.log(y) if log_scale else y)
+            x_trend = np.array([df['Size'].min(), df['Size'].max()])
+            y_trend = np.exp(model.predict(np.log(x_trend.reshape(-1, 1)))) if log_scale else model.predict(x_trend.reshape(-1, 1))
+            plt.plot(x_trend, y_trend, 'k--', alpha=0.5, label=f'Trend (slope: {model.coef_[0]:.2e})')
+            plt.legend()
+
+        plt.tight_layout()
+        energy_figure = plt.gcf()
+
+        return accuracy_figure, energy_figure
+
+    def plot_model_size_vs_metrics_grid(self, fit_regression=False, in_bytes=False, log_scale=True):
+        """Plot model size against accuracy and energy consumption in a grid of subplots."""
+        metrics_list = []
+        model_info = utils.get_model_info()
+
+        for (ds_name, model_name), metrics in self.metrics.items():
+            # Extract model size from name (e.g., "llama_7b" -> 7)
+            size = None
+            if in_bytes:
+                # Translate model to model key. Need to handle cases like:
+                #   qwen25_05b_instruct_q4_0 -> qwen2.5:0.5b-instruct-q4_0
+                #   qwen25_15b_instruct_q4_0 -> qwen2.5:1.5b-instruct-q4_0
+                #   llama32_1b_instruct_q3_K_L -> llama3.2:1b-instruct-q3_K_L
+                #   gemma2_2b_instruct_q3_K_L -> gemma2:2b-instruct-q3_K_L
+                #   llama32_1b_instruct_fp16 -> llama3.2:1b-instruct-fp16
+                model_key = model_name.replace("_", ":", 1).replace("_", "-", 2)
+                model_key = re.sub(r"(\d)(\d)(?=\D)", r"\1.\2", model_key, count=2)
+                # model_key = re.sub(r"(\d)(\d)", r"\1.\2", model_key, count=2)
+                model_key = next((item['model'] for item in model_info['models'] if item['name'] == model_key), None)
+                if model_key:
+                    size = next(item['size'] for item in model_info['models'] if item['model'] == model_key)
+            else:
+                name_parts = model_name.split('_')
+                for part in name_parts:
+                    if part.lower().endswith('b'):
+                        try:
+                            size = float(part[:-1])  # Remove 'b' and convert to float
+                        except ValueError:
+                            continue
+            
+            if size is not None:
+                model_family = "_".join(model_name.split('_')[:2])  # e.g., "llama_2"
+                metrics_list.append({
+                    'Model': model_name,
+                    'Dataset': ds_name,
+                    'Size': size,
+                    'Mean Energy per Token (J)': metrics.mean_energy_per_token,
+                    'Accuracy': metrics.accuracy,
+                    'Quantization': metrics.quantization_level,
+                    'Model Family': model_family
+                })
+
+        df = pd.DataFrame(metrics_list)
+        datasets = df['Dataset'].unique()
+        model_families = df['Model Family'].unique()
+        num_datasets = len(datasets)
+        num_model_families = len(model_families)
+
+        fig, axes = plt.subplots(num_datasets, num_model_families, figsize=(5 * num_model_families, 5 * num_datasets), sharex=True, sharey=True)
+        if num_datasets == 1:
+            axes = [axes]
+        if num_model_families == 1:
+            axes = [[ax] for ax in axes]
+
+        for i, dataset in enumerate(datasets):
+            for j, model_family in enumerate(model_families):
+                ax = axes[i][j]
+                dataset_df = df[(df['Dataset'] == dataset) & (df['Model Family'] == model_family)]
+                sns.scatterplot(
+                    data=dataset_df,
+                    x='Size',
+                    y='Accuracy',
+                    style='Quantization',
+                    s=100,
+                    ax=ax,
+                    # palette=self.colors
+                )
+                ax.set_title(f'{model_family} on {dataset}')
+                ax.set_xlabel('Model Size (Bytes)' if in_bytes else 'Model Size (Billion Parameters)')
+                ax.set_ylabel('Accuracy')
+                if log_scale:
+                    ax.set_xscale('log')
+                ax.grid(True, alpha=0.3)
+                if fit_regression and not dataset_df.empty:
+                    from sklearn.linear_model import LinearRegression
+                    x = dataset_df['Size'].values.reshape(-1, 1)
+                    y = dataset_df['Accuracy'].values
+                    model = LinearRegression()
+                    model.fit(np.log(x) if log_scale else x, y)
+                    x_trend = np.array([dataset_df['Size'].min(), dataset_df['Size'].max()])
+                    y_trend = model.predict(np.log(x_trend.reshape(-1, 1)) if log_scale else x_trend.reshape(-1, 1))
+                    ax.plot(x_trend, y_trend, 'k--', alpha=0.5, label=f'Trend (slope: {model.coef_[0]:.2e})')
+                    ax.legend()
+
+        plt.tight_layout()
+        accuracy_figure = plt.gcf()
+
+        fig, axes = plt.subplots(num_datasets, num_model_families, figsize=(5 * num_model_families, 5 * num_datasets), sharex=True, sharey=True)
+        if num_datasets == 1:
+            axes = [axes]
+        if num_model_families == 1:
+            axes = [[ax] for ax in axes]
+
+        for i, dataset in enumerate(datasets):
+            for j, model_family in enumerate(model_families):
+                ax = axes[i][j]
+                dataset_df = df[(df['Dataset'] == dataset) & (df['Model Family'] == model_family)]
+                sns.scatterplot(
+                    data=dataset_df,
+                    x='Size',
+                    y='Mean Energy per Token (J)',
+                    style='Quantization',
+                    s=100,
+                    ax=ax,
+                    palette=self.colors
+                )
+                ax.set_title(f'{model_family} on {dataset}')
+                ax.set_xlabel('Model Size (Bytes)' if in_bytes else 'Model Size (Billion Parameters)')
+                ax.set_ylabel('Mean Energy per Token (J)')
+                if log_scale:
+                    ax.set_xscale('log')
+                    ax.set_yscale('log')
+                ax.grid(True, alpha=0.3)
+                if fit_regression and not dataset_df.empty:
+                    from sklearn.linear_model import LinearRegression
+                    x = dataset_df['Size'].values.reshape(-1, 1)
+                    y = dataset_df['Mean Energy per Token (J)'].values
+                    model = LinearRegression()
+                    model.fit(np.log(x) if log_scale else x, np.log(y) if log_scale else y)
+                    x_trend = np.array([dataset_df['Size'].min(), dataset_df['Size'].max()])
+                    y_trend = np.exp(model.predict(np.log(x_trend.reshape(-1, 1)))) if log_scale else model.predict(x_trend.reshape(-1, 1))
+                    ax.plot(x_trend, y_trend, 'k--', alpha=0.5, label=f'Trend (slope: {model.coef_[0]:.2e})')
+                    ax.legend()
+
+        plt.tight_layout()
+        energy_figure = plt.gcf()
+
+        # Add shared legend for quantization levels
+        handles, labels = ax.get_legend_handles_labels()
+        fig.legend(handles, labels, loc='lower center', bbox_to_anchor=(0.5, -0.05), ncol=len(handles))
+
+        return accuracy_figure, energy_figure
+
 
 def main():
     parser = argparse.ArgumentParser(description='Analyze LLM energy consumption data')
@@ -908,8 +1168,16 @@ def main():
         # # 'quantization_impact': analyzer.analyze_quantization_impact2(args.dataset)
         # 'size_impact': analyzer.plot_energy_per_token_vs_size(args.dataset),
         # 'tokens_per_second': analyzer.plot_tokens_per_second(),
-        'accuracy_comparison': analyzer.plot_accuracy_subplots_vertical_bars(),
+        # 'accuracy_comparison': analyzer.plot_accuracy_subplots_vertical_bars(),
         # 'average_accuracy': analyzer.plot_average_accuracy(),
+        # 'model_size_vs_energy': analyzer.plot_model_size_vs_metrics(fit_regression=True, in_bytes=False, log_scale=True)[0],
+        # 'model_size_vs_accuracy': analyzer.plot_model_size_vs_metrics(fit_regression=True, in_bytes=False, log_scale=True)[1],
+        # 'model_size_vs_energy_bytes': analyzer.plot_model_size_vs_metrics(fit_regression=True, in_bytes=True, log_scale=False)[0],
+        # 'model_size_vs_accuracy_bytes': analyzer.plot_model_size_vs_metrics(fit_regression=True, in_bytes=True, log_scale=False)[1],
+        # 'model_size_vs_energy_bytes_log': analyzer.plot_model_size_vs_metrics(fit_regression=True, in_bytes=True, log_scale=True)[0],
+        # 'model_size_vs_accuracy_bytes_log': analyzer.plot_model_size_vs_metrics(fit_regression=True, in_bytes=True, log_scale=True)[1],
+        'model_size_vs_metrics_grid': analyzer.plot_model_size_vs_metrics_grid(fit_regression=True, in_bytes=True, log_scale=True)[0],
+        'model_size_vs_metrics_grid_energy': analyzer.plot_model_size_vs_metrics_grid(fit_regression=True, in_bytes=True, log_scale=True)[1],
     }
     
     for name, fig in plots.items():
