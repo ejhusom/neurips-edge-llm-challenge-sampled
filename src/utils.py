@@ -23,6 +23,20 @@ def get_color_for_model(model_name):
     }
     return colors.get(model_base_name, "gray")
 
+def get_markers():
+    """Return a dictionary of model markers."""
+    return {
+        "fp16": "o",
+        "q8_0": "X",
+        "q4_1": "s",
+        "q4_K_M": "P",
+        "q4_0": "D",
+        "q4_K_S": (4, 1, 0),
+        "q3_K_L": "^",
+        "q3_K_M": (4, 1, 45),
+        "q3_K_S": "v",
+    }
+
 def get_colors():
     """Return a dictionary of model colors."""
     return {

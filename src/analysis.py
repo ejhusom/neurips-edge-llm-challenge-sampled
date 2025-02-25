@@ -43,6 +43,7 @@ class EnergyAnalyzer:
         self.metrics: Dict[Tuple[str, str], ModelMetrics] = {}
         self.raw_data: Dict[str, pd.DataFrame] = {}
         self.colors = utils.get_colors()
+        self.markers = utils.get_markers()
         self._load_and_process_data()
 
     QUANTIZATION_ORDER = [
@@ -191,7 +192,8 @@ class EnergyAnalyzer:
             style='Quantization',
             s=100,
             alpha=0.6,
-            palette=self.colors
+            markers=self.markers,
+            palette=self.colors,
         )
         
         # Plot Pareto points with larger markers
@@ -204,6 +206,7 @@ class EnergyAnalyzer:
             style='Quantization',
             s=200,
             legend=False,
+            markers=self.markers,
             palette=self.colors
         )
         
@@ -952,6 +955,7 @@ class EnergyAnalyzer:
                 style='Quantization',
                 s=100,
                 ax=ax,
+                markers=self.markers,
                 palette=self.colors
             )
             ax.set_title(f'Model Size vs Accuracy for {dataset}')
@@ -983,6 +987,7 @@ class EnergyAnalyzer:
             hue='Dataset',
             style='Quantization',
             s=100,
+            markers=self.markers,
             palette=self.colors
         )
         if log_scale:
@@ -1055,7 +1060,7 @@ class EnergyAnalyzer:
         num_datasets = len(datasets)
         num_model_families = len(model_families)
 
-        fig, axes = plt.subplots(num_datasets, num_model_families, figsize=(5 * num_model_families, 5 * num_datasets), sharex=True, sharey=True)
+        fig, axes = plt.subplots(num_datasets, num_model_families, figsize=(3 * num_model_families, 3 * num_datasets), sharex=True, sharey=True)
         if num_datasets == 1:
             axes = [axes]
         if num_model_families == 1:
@@ -1072,6 +1077,7 @@ class EnergyAnalyzer:
                     style='Quantization',
                     s=100,
                     ax=ax,
+                    markers=self.markers,
                     # palette=self.colors
                 )
                 ax.set_title(f'{model_family} on {dataset}')
@@ -1080,6 +1086,7 @@ class EnergyAnalyzer:
                 if log_scale:
                     ax.set_xscale('log')
                 ax.grid(True, alpha=0.3)
+
                 if fit_regression and not dataset_df.empty:
                     from sklearn.linear_model import LinearRegression
                     x = dataset_df['Size'].values.reshape(-1, 1)
@@ -1089,12 +1096,29 @@ class EnergyAnalyzer:
                     x_trend = np.array([dataset_df['Size'].min(), dataset_df['Size'].max()])
                     y_trend = model.predict(np.log(x_trend.reshape(-1, 1)) if log_scale else x_trend.reshape(-1, 1))
                     ax.plot(x_trend, y_trend, 'k--', alpha=0.5, label=f'Trend (slope: {model.coef_[0]:.2e})')
-                    ax.legend()
+                    # Add only the label for the trend line to the legend, leave out all other handles in the legend
+                    handles, labels = ax.get_legend_handles_labels()
+                    ax.legend(handles[-1:], labels[-1:])
+
+        # Add shared legend for quantization levels
+        # handles, labels = ax.get_legend_handles_labels()
+        # fig.legend(handles, labels, loc='lower center', bbox_to_anchor=(0.5, -0.05), ncol=len(handles))
+        # --- Create a shared legend below all subplots ---
+        handles = [plt.Line2D([0], [0], marker=self.markers[key], color='w', 
+                            markerfacecolor='black', markersize=8, linestyle='') 
+                for key in self.markers]
+
+        labels = list(self.markers.keys())
+
+        fig.legend(handles, labels, title="Quantization Levels", loc="lower center", ncol=len(self.markers), frameon=False, bbox_to_anchor=(0.5, -0.05))
+
+        # Adjust layout to make space for the global legend
+        plt.subplots_adjust(bottom=0.2)
 
         plt.tight_layout()
         accuracy_figure = plt.gcf()
 
-        fig, axes = plt.subplots(num_datasets, num_model_families, figsize=(5 * num_model_families, 5 * num_datasets), sharex=True, sharey=True)
+        fig, axes = plt.subplots(num_datasets, num_model_families, figsize=(3 * num_model_families, 3 * num_datasets), sharex=True, sharey=True)
         if num_datasets == 1:
             axes = [axes]
         if num_model_families == 1:
@@ -1111,7 +1135,8 @@ class EnergyAnalyzer:
                     style='Quantization',
                     s=100,
                     ax=ax,
-                    palette=self.colors
+                    markers=self.markers,
+                    # palette=self.colors
                 )
                 ax.set_title(f'{model_family} on {dataset}')
                 ax.set_xlabel('Model Size (Bytes)' if in_bytes else 'Model Size (Billion Parameters)')
@@ -1129,14 +1154,25 @@ class EnergyAnalyzer:
                     x_trend = np.array([dataset_df['Size'].min(), dataset_df['Size'].max()])
                     y_trend = np.exp(model.predict(np.log(x_trend.reshape(-1, 1)))) if log_scale else model.predict(x_trend.reshape(-1, 1))
                     ax.plot(x_trend, y_trend, 'k--', alpha=0.5, label=f'Trend (slope: {model.coef_[0]:.2e})')
-                    ax.legend()
+                    # Add only the label for the trend line to the legend, leave out all other handles in the legend
+                    handles, labels = ax.get_legend_handles_labels()
+                    ax.legend(handles[-1:], labels[-1:])
+
+
+        # --- Create a shared legend below all subplots ---
+        handles = [plt.Line2D([0], [0], marker=self.markers[key], color='w', 
+                            markerfacecolor='black', markersize=8, linestyle='') 
+                for key in self.markers]
+
+        labels = list(self.markers.keys())
+
+        fig.legend(handles, labels, title="Quantization Levels", loc="lower center", ncol=len(self.markers), frameon=False, bbox_to_anchor=(0.5, -0.05))
+
+        # Adjust layout to make space for the global legend
+        plt.subplots_adjust(bottom=0.2)
 
         plt.tight_layout()
         energy_figure = plt.gcf()
-
-        # Add shared legend for quantization levels
-        handles, labels = ax.get_legend_handles_labels()
-        fig.legend(handles, labels, loc='lower center', bbox_to_anchor=(0.5, -0.05), ncol=len(handles))
 
         return accuracy_figure, energy_figure
 
