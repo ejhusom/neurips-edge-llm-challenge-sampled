@@ -8,6 +8,9 @@ from typing import List, Dict, Tuple
 from dataclasses import dataclass
 import utils
 
+from adjustText import adjust_text
+import textalloc as ta
+
 @dataclass
 class ModelMetrics:
     """Class to store aggregated metrics for a model-dataset combination"""
@@ -218,25 +221,26 @@ class EnergyAnalyzer:
         plt.xlabel('Mean Energy Consumption (Joules)')
         plt.ylabel('Accuracy')
         
-        # Add annotations for Pareto-optimal points and high performers
+        # add annotations for pareto-optimal points and high performers
+        texts = []
         for _, row in df.iterrows():
             if row['Pareto_Optimal']:
-                model_name = "_".join(row['Model'].split('_')[:2])  # Show model family and size
-                plt.annotate(
-                    f"{model_name}\n({row['Quantization']})",
-                    (row['Mean Energy (J)'], row['Accuracy']),
-                    xytext=(5, 5),
-                    textcoords='offset points',
-                    fontsize=8,
-                    bbox=dict(facecolor='white', edgecolor='none', alpha=0.0)
-                )
+                model_name = "_".join(row['Model'].split('_')[:2])  # show model family and size
+                texts.append({
+                    'x': row['Mean Energy (J)'],
+                    'y': row['Accuracy'],
+                    'text': f"{model_name}\n({row['Quantization']})"
+                })
+
+        # adjust text to avoid overlap using textalloc
+        ta.allocate(ax=plt.gca(), x=[t["x"] for t in texts], y=[t["y"] for t in texts], text_list=[t["text"] for t in texts])
         
-        # Add a text box with key statistics
+        # add a text box with key statistics
         stats_text = (
             f"Number of models: {len(df)}\n"
             f"Pareto-optimal models: {len(pareto)}\n"
             f"Accuracy range: {df['Accuracy'].min():.2f}-{df['Accuracy'].max():.2f}\n"
-            f"Energy range: {df['Mean Energy (J)'].min():.2f}-{df['Mean Energy (J)'].max():.2f}J"
+            f"Energy range: {df['Mean Energy (J)'].min():.2f}-{df['Mean Energy (J)'].max():.2f}j"
         )
         plt.text(0.02, 0.02, stats_text,
                 transform=plt.gca().transAxes,
