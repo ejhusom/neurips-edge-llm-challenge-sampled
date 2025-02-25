@@ -9,7 +9,6 @@ from dataclasses import dataclass
 import utils
 
 from adjustText import adjust_text
-import textalloc as ta
 
 @dataclass
 class ModelMetrics:
@@ -179,7 +178,7 @@ class EnergyAnalyzer:
         ]
         
         # Create plot
-        plt.figure(figsize=(7, 6))
+        plt.figure(figsize=(7, 4.5))
         
         # Plot non-Pareto points
         non_pareto = df[~df['Pareto_Optimal']]
@@ -221,32 +220,45 @@ class EnergyAnalyzer:
         plt.xlabel('Mean Energy Consumption (Joules)')
         plt.ylabel('Accuracy')
         
-        # add annotations for pareto-optimal points and high performers
+        # Add annotations for Pareto-optimal points and high performers
         texts = []
         for _, row in df.iterrows():
             if row['Pareto_Optimal']:
-                model_name = "_".join(row['Model'].split('_')[:2])  # show model family and size
-                texts.append({
-                    'x': row['Mean Energy (J)'],
-                    'y': row['Accuracy'],
-                    'text': f"{model_name}\n({row['Quantization']})"
-                })
+                model_name = "_".join(row['Model'].split('_')[:2])  # Show model family and size
+                # plt.annotate(
+                #     f"{model_name}\n({row['Quantization']})",
+                #     (row['Mean Energy (J)'], row['Accuracy']),
+                #     xytext=(5, 5),
+                #     textcoords='offset points',
+                #     fontsize=8,
+                #     bbox=dict(facecolor='white', edgecolor='none', alpha=0.0)
+                # )
+                texts.append(plt.text(
+                    row['Mean Energy (J)'], row['Accuracy'],
+                    f"{model_name} ({row['Quantization']})",
+                    fontsize=8,
+                    bbox=dict(facecolor='white', edgecolor='none', alpha=0.7)
+                ))
 
-        # adjust text to avoid overlap using textalloc
-        ta.allocate(ax=plt.gca(), x=[t["x"] for t in texts], y=[t["y"] for t in texts], text_list=[t["text"] for t in texts])
+        # Adjust text to avoid overlap
+        adjust_text(texts, arrowprops=dict(arrowstyle="->", color='black', lw=0.5))
+    
         
-        # add a text box with key statistics
+        # Add a text box with key statistics
         stats_text = (
             f"Number of models: {len(df)}\n"
             f"Pareto-optimal models: {len(pareto)}\n"
             f"Accuracy range: {df['Accuracy'].min():.2f}-{df['Accuracy'].max():.2f}\n"
-            f"Energy range: {df['Mean Energy (J)'].min():.2f}-{df['Mean Energy (J)'].max():.2f}j"
+            f"Energy range: {df['Mean Energy (J)'].min():.2f}-{df['Mean Energy (J)'].max():.2f}J"
         )
         plt.text(0.02, 0.02, stats_text,
                 transform=plt.gca().transAxes,
                 bbox=dict(facecolor='white', edgecolor='none', alpha=0.7),
                 fontsize=8,
                 verticalalignment='bottom')
+
+        # Add legend outside the plot
+        plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
         
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
@@ -885,7 +897,7 @@ def main():
     # Generate and save plots
     plots = {
         # 'energy_accuracy': analyzer.plot_energy_accuracy_tradeoff(args.dataset),
-        'energy_accuracy_log': analyzer.plot_energy_accuracy_tradeoff(args.dataset, log_scale=True),
+        # 'energy_accuracy_log': analyzer.plot_energy_accuracy_tradeoff(args.dataset, log_scale=True),
         # 'energy_distribution': analyzer.plot_energy_distribution(args.dataset),
         # 'energy_distribution_log': analyzer.plot_energy_distribution(args.dataset, log_scale=True),
         # 'energy_distribution_per_token': analyzer.plot_energy_distribution(args.dataset, per_token=True),
@@ -895,9 +907,9 @@ def main():
         # 'token_impact': analyzer.analyze_token_length_impact(args.dataset),
         # # 'quantization_impact': analyzer.analyze_quantization_impact2(args.dataset)
         # 'size_impact': analyzer.plot_energy_per_token_vs_size(args.dataset),
-        # 'tokens_per_second': analyzer.plot_tokens_per_second()
-        # 'accuracy_comparison': analyzer.plot_accuracy_subplots_vertical_bars()
-        # 'average_accuracy': analyzer.plot_average_accuracy()
+        # 'tokens_per_second': analyzer.plot_tokens_per_second(),
+        'accuracy_comparison': analyzer.plot_accuracy_subplots_vertical_bars(),
+        # 'average_accuracy': analyzer.plot_average_accuracy(),
     }
     
     for name, fig in plots.items():
