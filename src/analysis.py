@@ -708,10 +708,13 @@ class EnergyAnalyzer:
             accuracy_data.append({
                 'Dataset': dataset_name,
                 'Model': model_name,
-                'Accuracy': metrics.accuracy
+                'Accuracy': metrics.accuracy,
+                'Quantization': metrics.quantization_level
             })
         
         df = pd.DataFrame(accuracy_data)
+        df['Quantization_Rank'] = df['Quantization'].apply(self._get_quantization_rank)
+        df = df.sort_values(by='Quantization_Rank')
         pivot_df = df.pivot(index='Model', columns='Dataset', values='Accuracy')
 
         # Add a column for the average accuracy across datasets for each model
@@ -739,10 +742,13 @@ class EnergyAnalyzer:
             energy_data.append({
                 'Dataset': dataset_name,
                 'Model': model_name,
-                'Mean Energy per Token (J/tok)': metrics.mean_energy_per_token
+                'Mean Energy per Token (J/tok)': metrics.mean_energy_per_token,
+                'Quantization': metrics.quantization_level
             })
         
         df = pd.DataFrame(energy_data)
+        df['Quantization_Rank'] = df['Quantization'].apply(self._get_quantization_rank)
+        df = df.sort_values(by='Quantization_Rank')
         pivot_df = df.pivot(index='Model', columns='Dataset', values='Mean Energy per Token (J/tok)')
 
         # Add a column for the average energy consumption across datasets for each model
@@ -756,6 +762,35 @@ class EnergyAnalyzer:
             na_rep="-",
             caption="Mean Energy Consumption of Models on Various Datasets",
             label="tab:energy"
+        )
+
+        # Make sure to escape any underscores
+        latex_table = latex_table.replace("_", r"\_")
+
+        return latex_table
+
+    def generate_energy_per_token_latex_table(self) -> str:
+        """Generate a LaTeX table of mean and std energy per token for each model family, averaged across all datasets."""
+        energy_data = []
+        for (dataset_name, model_name), metrics in self.metrics.items():
+            model_family = "_".join(model_name.split('_')[:2])
+            energy_data.append({
+                'Model Family': model_family,
+                'Mean Energy per Token (J/tok)': metrics.mean_energy_per_token,
+                'Std Energy per Token (J/tok)': metrics.std_energy_per_token
+            })
+        
+        df = pd.DataFrame(energy_data)
+        summary_df = df.groupby('Model Family').agg({
+            'Mean Energy per Token (J/tok)': 'mean',
+            'Std Energy per Token (J/tok)': 'mean'
+        }).reset_index()
+
+        latex_table = summary_df.to_latex(
+            float_format="%.2f",
+            na_rep="-",
+            caption="Mean and Std Energy per Token for Model Families Averaged Across Datasets",
+            label="tab:energy_per_token"
         )
 
         # Make sure to escape any underscores
@@ -1381,6 +1416,66 @@ class EnergyAnalyzer:
         # plt.savefig("output/tokens_per_joule_distribution.pdf")
         return plt.gcf()
 
+    def print_energy_per_token_summary(self):
+        """Print a summary of the energy consumption per token for each model and dataset."""
+        summary_data = []
+
+        for (dataset_name, model_name), metrics in self.metrics.items():
+            summary_data.append({
+                'Dataset': dataset_name,
+                'Model': model_name,
+                'Mean Energy per Token (J)': metrics.mean_energy_per_token,
+                'Std Energy per Token (J)': metrics.std_energy_per_token,
+                'Median Energy per Token (J)': metrics.median_energy_per_token,
+                'Min Energy per Token (J)': metrics.minimum_energy_per_token,
+                'Max Energy per Token (J)': metrics.maximum_energy_per_token,
+                'Q1 Energy per Token (J)': metrics.q1_energy_per_token,
+                'Q3 Energy per Token (J)': metrics.q3_energy_per_token,
+                'IQR Energy per Token (J)': metrics.iqr_energy_per_token
+            })
+
+        df = pd.DataFrame(summary_data)
+
+        # Print overall summary
+        # print("Overall Energy Consumption per Token Summary:")
+        overall_summary = df.describe()
+        overall_summary.to_csv("output/energy_per_token_summary.csv")
+
+        # Print summary for each model
+        # print("\nEnergy Consumption per Token Summary by Model:")
+        model_summary = df.groupby('Model').describe()
+        model_summary.to_csv("output/energy_per_token_summary_by_model.csv")
+
+        # Print summary for each dataset
+        # print("\nEnergy Consumption per Token Summary by Dataset:")
+        dataset_summary = df.groupby('Dataset').describe()
+        dataset_summary.to_csv("output/energy_per_token_summary_by_dataset.csv")
+
+    def print_accuracy_summary(self):
+        """Print a summary of the accuracy for each model and dataset."""
+        summary_data = []
+
+        for (dataset_name, model_name), metrics in self.metrics.items():
+            summary_data.append({
+                'Dataset': dataset_name,
+                'Model': model_name,
+                'Accuracy': metrics.accuracy
+            })
+
+        df = pd.DataFrame(summary_data)
+
+        # Print overall summary
+        overall_summary = df.describe()
+        overall_summary.to_csv("output/accuracy_summary.csv")
+
+        # Print summary for each model
+        model_summary = df.groupby('Model').describe()
+        model_summary.to_csv("output/accuracy_summary_by_model.csv")
+
+        # Print summary for each dataset
+        dataset_summary = df.groupby('Dataset').describe()
+        dataset_summary.to_csv("output/accuracy_summary_by_dataset.csv")
+
 def main():
     parser = argparse.ArgumentParser(description='Analyze LLM energy consumption data')
     parser.add_argument('files', nargs='+', help='CSV files to analyze')
@@ -1422,9 +1517,9 @@ def main():
         # 'model_size_vs_accuracy_bytes_log': analyzer.plot_model_size_vs_metrics(fit_regression=True, in_bytes=True, log_scale=True)[1],
         # 'model_size_vs_metrics_grid': analyzer.plot_model_size_vs_metrics_grid(fit_regression=True, in_bytes=True, log_scale=True)[0],
         # 'model_size_vs_metrics_grid_energy': analyzer.plot_model_size_vs_metrics_grid(fit_regression=True, in_bytes=True, log_scale=True)[1],
-        'tokens_per_joule_distribution': analyzer.plot_tokens_per_joule_distribution(args.dataset, log_scale=False, subplots=False),
-        'tokens_per_joule_distribution_log': analyzer.plot_tokens_per_joule_distribution(args.dataset, log_scale=True, subplots=False),
-        'tokens_per_joule_distribution_log_subplots': analyzer.plot_tokens_per_joule_distribution(args.dataset, log_scale=True, subplots=True),
+        # 'tokens_per_joule_distribution': analyzer.plot_tokens_per_joule_distribution(args.dataset, log_scale=False, subplots=False),
+        # 'tokens_per_joule_distribution_log': analyzer.plot_tokens_per_joule_distribution(args.dataset, log_scale=True, subplots=False),
+        # 'tokens_per_joule_distribution_log_subplots': analyzer.plot_tokens_per_joule_distribution(args.dataset, log_scale=True, subplots=True),
     }
     
     for name, fig in plots.items():
@@ -1445,12 +1540,19 @@ def main():
     with open(Path(args.output_dir) / "energy_table.tex", "w") as f:
         f.write(energy_latex_table)
 
+    energy_per_token_latex_table = analyzer.generate_energy_per_token_latex_table()
+    with open(Path(args.output_dir) / "energy_per_token_table.tex", "w") as f:
+        f.write(energy_per_token_latex_table)
+
     # Print some basic statistics
     print("\nSummary Statistics:")
     print(f"Total number of models analyzed: {len(summary_df['Model'].unique())}")
     print(f"Datasets analyzed: {', '.join(summary_df['Dataset'].unique())}")
     print("\nTop 5 most energy-efficient models (by mean energy per token):")
     print(summary_df.nsmallest(5, 'Mean Energy per Token (J)')[['Dataset', 'Model', 'Mean Energy per Token (J)', 'Accuracy']])
+
+    analyzer.print_energy_per_token_summary()
+    analyzer.print_accuracy_summary()
 
 if __name__ == "__main__":
     main()
