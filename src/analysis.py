@@ -863,12 +863,22 @@ class EnergyAnalyzer:
         plt.tight_layout()
         return plt.gcf()
 
-    def plot_tokens_per_second(self):
+    def plot_tokens_per_second(self, use_total_duration=False):
         """Plot the tokens per second for all models."""
         tokens_per_second_data = []
+
+        if use_total_duration:
+            duration_col = "total_duration"
+        else:
+            duration_col = "eval_duration"
+
         for (dataset_name, model_name), metrics in self.metrics.items():
             df = self.raw_data[f"{dataset_name}_{model_name}"]
-            tokens_per_second = df["eval_count"] / (df["eval_duration"] * 10**-9)
+
+            # Convert timedelta to nanoseconds
+            df["total_duration"] = pd.to_timedelta(df["total_duration"]).dt.total_seconds() * 10**9
+
+            tokens_per_second = df["eval_count"] / (df[duration_col] * 10**-9)
             tokens_per_second_data.append({
                 'Dataset': dataset_name,
                 'Model': model_name,
@@ -876,19 +886,35 @@ class EnergyAnalyzer:
                 'Quantization': metrics.quantization_level,
                 'Model Family': "_".join(model_name.split("_")[:2])  # Extract model family
             })
+
         
         df = pd.DataFrame(tokens_per_second_data)
-        pivot_df = df.pivot(index='Model', columns='Dataset', values='Tokens per Second')
 
         # Sort the models according to the QUANTIZATION_ORDER
         df['Quantization_Rank'] = df['Quantization'].apply(self._get_quantization_rank)
-        df = df.sort_values(by='Quantization_Rank')
+        df = df.sort_values(by=['Model Family', 'Quantization_Rank'])
+
+        pivot_df = df.pivot(index='Model', columns='Dataset', values='Tokens per Second')
+        # Sort the rows according to the quantization rank
+        pivot_df["Model Family"] = pivot_df.index.map(lambda x: "_".join(x.split("_")[:2]))
+        pivot_df["Quantization_Rank"] = pivot_df.index.map(lambda x: self._get_quantization_rank(df.loc[df["Model"] == x, "Quantization"].values[0]))
+        pivot_df = pivot_df.sort_values(by=["Model Family", "Quantization_Rank"], ascending=[True, False])
+        pivot_df.drop(columns=["Model Family", "Quantization_Rank"], inplace=True)
+
+
+
 
         # Plot the tokens per second with horizontal bars
         ax = pivot_df.plot(kind='barh', figsize=(7, 9), color=[self.colors.get(dataset, 'gray') for dataset in pivot_df.columns])
-        plt.xlabel('Tokens per Second')
+
         plt.ylabel('Model')
-        plt.title('Tokens per Second for All Models')
+        
+        if use_total_duration:
+            plt.xlabel('Tokens per Second (Total Duration)')
+            plt.title('Tokens per Second for All Models (Total Duration)')
+        else:
+            plt.xlabel('Tokens per Second')
+            plt.title('Tokens per Second for All Models')
 
         # Color the background of the tick labels according to the model family
         for tick_label in ax.get_yticklabels():
@@ -1286,6 +1312,75 @@ class EnergyAnalyzer:
         plt.tight_layout()
         return fig
 
+    def plot_tokens_per_joule_distribution(self, dataset_name: str = None, log_scale=False, subplots=False):
+        """Plot tokens per joule distribution for each model.
+        
+        If subplots is True, plot each dataset in a subplot with shared x-axis.
+        """
+        column = 'tokens_per_joule'
+
+        data = []
+        for experiment_name, df in self.raw_data.items():
+            ds_name = utils.get_dataset_name(experiment_name)
+            model_name = utils.get_model_name(experiment_name)
+            model_family = "_".join(model_name.split("_")[:3])  # Extract model family
+            if dataset_name is None or ds_name.lower() == dataset_name.lower():
+                df[column] = df['eval_count'] / df['energy_consumption_joules']
+                data.extend([{
+                    'Model': model_name,
+                    'Dataset': ds_name,
+                    'Tokens per Joule': tokens_per_joule,
+                    'Model Family': model_family
+                } for tokens_per_joule in df[column]])
+        
+        df = pd.DataFrame(data)
+
+        if subplots:
+            datasets = df['Dataset'].unique()
+            num_datasets = len(datasets)
+            fig, axes = plt.subplots(num_datasets, 1, figsize=(12, 3 * num_datasets), sharex=True)
+            if num_datasets == 1:
+                axes = [axes]
+
+            for ax, dataset in zip(axes, datasets):
+                sns.boxplot(
+                    data=df[df['Dataset'] == dataset],
+                    x='Model',
+                    y='Tokens per Joule',
+                    hue='Model Family',
+                    ax=ax,
+                    palette=self.colors
+                )
+                ax.set_title(f'Tokens per Joule Distribution by Model for {dataset}')
+                ax.set_xlabel('Model')
+                ax.set_ylabel('Tokens per Joule')
+                ax.tick_params(axis='x', rotation=45)
+                if log_scale:
+                    ax.set_yscale('log')
+            plt.tight_layout()
+
+            # Add shared legend at the bottom
+            handles, labels = ax.get_legend_handles_labels()
+            fig.legend(handles, labels, loc='lower center', ncol=len(labels), bbox_to_anchor=(0.5, -0.02))
+        else:
+            plt.figure(figsize=(12, 6))
+            sns.boxplot(
+                data=df,
+                x='Model',
+                y='Tokens per Joule',
+                hue='Model Family',
+                palette=self.colors
+            )
+            plt.xticks(rotation=45, ha='right')
+            if log_scale:
+                plt.yscale('log')
+            plt.title('Tokens per Joule Distribution by Model')
+            plt.tight_layout()
+        
+
+        # plt.savefig("output/tokens_per_joule_distribution.pdf")
+        return plt.gcf()
+
 def main():
     parser = argparse.ArgumentParser(description='Analyze LLM energy consumption data')
     parser.add_argument('files', nargs='+', help='CSV files to analyze')
@@ -1316,7 +1411,8 @@ def main():
         # 'quantization_impact3': analyzer.plot_quantization_impact(args.dataset),
         # 'size_impact': analyzer.plot_energy_per_token_vs_size(args.dataset),
         # 'tokens_per_second': analyzer.plot_tokens_per_second(),
-        'accuracy_comparison': analyzer.plot_accuracy_subplots_vertical_bars(),
+        # 'tokens_per_second_total_duration': analyzer.plot_tokens_per_second(use_total_duration=True),
+        # 'accuracy_comparison': analyzer.plot_accuracy_subplots_vertical_bars(),
         # 'average_accuracy': analyzer.plot_average_accuracy(),
         # 'model_size_vs_energy': analyzer.plot_model_size_vs_metrics(fit_regression=True, in_bytes=False, log_scale=True)[0],
         # 'model_size_vs_accuracy': analyzer.plot_model_size_vs_metrics(fit_regression=True, in_bytes=False, log_scale=True)[1],
@@ -1326,6 +1422,9 @@ def main():
         # 'model_size_vs_accuracy_bytes_log': analyzer.plot_model_size_vs_metrics(fit_regression=True, in_bytes=True, log_scale=True)[1],
         # 'model_size_vs_metrics_grid': analyzer.plot_model_size_vs_metrics_grid(fit_regression=True, in_bytes=True, log_scale=True)[0],
         # 'model_size_vs_metrics_grid_energy': analyzer.plot_model_size_vs_metrics_grid(fit_regression=True, in_bytes=True, log_scale=True)[1],
+        'tokens_per_joule_distribution': analyzer.plot_tokens_per_joule_distribution(args.dataset, log_scale=False, subplots=False),
+        'tokens_per_joule_distribution_log': analyzer.plot_tokens_per_joule_distribution(args.dataset, log_scale=True, subplots=False),
+        'tokens_per_joule_distribution_log_subplots': analyzer.plot_tokens_per_joule_distribution(args.dataset, log_scale=True, subplots=True),
     }
     
     for name, fig in plots.items():
