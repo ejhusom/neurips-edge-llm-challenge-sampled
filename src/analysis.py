@@ -444,7 +444,7 @@ class EnergyAnalyzer:
         plt.tight_layout()
         return fig
 
-    def analyze_quantization_impact2(self, dataset_name: str = None):
+    def analyze_quantization_impact2(self, dataset_name: str = None, average: bool = True):
         """Analyze the impact of quantization on energy consumption and accuracy"""
         def get_quantization_rank(quant_level):
             try:
@@ -479,11 +479,8 @@ class EnergyAnalyzer:
             if len(variants) < 2:  # Skip if only one quantization level
                 continue
                 
-            # Find the baseline (non-quantized or highest precision) variant
-            # Assuming the variant with the highest energy consumption is the baseline
-            baseline = max(variants, key=lambda x: x['energy'])
-            # Assume instead that the first available item from QUANTIZATION_ORDER is the baseline, keeping in mind that not all models may have this quantization level
-            baseline = next((v for v in variants if v['quantization'] in self.QUANTIZATION_ORDER), None)
+            # The baseline will be the "q3_K_S" quantization level
+            baseline = next((v for v in variants if v['quantization'] == 'q3_K_S'), None)
             
             # Calculate relative changes
             relative_metrics = []
@@ -492,43 +489,65 @@ class EnergyAnalyzer:
                     'Model': base_model,
                     'Quantization': variant['quantization'],
                     'Energy Saving (%)': 100 * (1 - variant['energy'] / baseline['energy']),
-                    'Accuracy Loss (pp)': 100 * (baseline['accuracy'] - variant['accuracy'])
+                    'Accuracy Loss (pp)': 100 * (baseline['accuracy'] - variant['accuracy']),
+                    'Dataset': variant['dataset']
                 })
                 all_quant_levels.add(variant['quantization'])
             
             # Sort relative_metrics based on the defined order
             relative_metrics.sort(key=lambda x: get_quantization_rank(x['Quantization']))
             
-            # Get x-positions that maintain the order
-            quant_levels = [m['Quantization'] for m in relative_metrics]
-            
-            # Plot energy savings
-            ax1.scatter(
-                quant_levels,
-                [m['Energy Saving (%)'] for m in relative_metrics],
-                label=base_model,
-                marker='o'
-            )
-            
-            # Plot accuracy loss
-            ax2.scatter(
-                quant_levels,
-                [m['Accuracy Loss (pp)'] for m in relative_metrics],
-                label=base_model,
-                marker='o'
-            )
-            
-            # Connect points with lines
-            ax1.plot(
-                quant_levels,
-                [m['Energy Saving (%)'] for m in relative_metrics],
-                alpha=0.5
-            )
-            ax2.plot(
-                quant_levels,
-                [m['Accuracy Loss (pp)'] for m in relative_metrics],
-                alpha=0.5
-            )
+            if average:
+                # Average the data points for each model on any given quantization level
+                avg_metrics = {}
+                for metric in relative_metrics:
+                    quant_level = metric['Quantization']
+                    if quant_level not in avg_metrics:
+                        avg_metrics[quant_level] = {'Energy Saving (%)': [], 'Accuracy Loss (pp)': []}
+                    avg_metrics[quant_level]['Energy Saving (%)'].append(metric['Energy Saving (%)'])
+                    avg_metrics[quant_level]['Accuracy Loss (pp)'].append(metric['Accuracy Loss (pp)'])
+                
+                avg_relative_metrics = []
+                for quant_level, values in avg_metrics.items():
+                    avg_relative_metrics.append({
+                        'Quantization': quant_level,
+                        'Energy Saving (%)': np.mean(values['Energy Saving (%)']),
+                        'Accuracy Loss (pp)': np.mean(values['Accuracy Loss (pp)'])
+                    })
+                
+                # Plot energy savings
+                ax1.scatter(
+                    [m['Quantization'] for m in avg_relative_metrics],
+                    [m['Energy Saving (%)'] for m in avg_relative_metrics],
+                    label=base_model,
+                    marker='o'
+                )
+                
+                # Plot accuracy loss
+                ax2.scatter(
+                    [m['Quantization'] for m in avg_relative_metrics],
+                    [m['Accuracy Loss (pp)'] for m in avg_relative_metrics],
+                    label=base_model,
+                    marker='o'
+                )
+            else:
+                # Plot energy savings
+                for metric in relative_metrics:
+                    ax1.scatter(
+                        metric['Quantization'],
+                        metric['Energy Saving (%)'],
+                        label=base_model,
+                        marker=self.markers[metric['Dataset']]
+                    )
+                
+                # Plot accuracy loss
+                for metric in relative_metrics:
+                    ax2.scatter(
+                        metric['Quantization'],
+                        metric['Accuracy Loss (pp)'],
+                        label=base_model,
+                        marker=self.markers[metric['Dataset']]
+                    )
 
         # Sort all quantization levels according to our ordering
         ordered_levels = sorted(list(all_quant_levels), key=get_quantization_rank)
@@ -794,7 +813,7 @@ class EnergyAnalyzer:
         plt.show()
 
     def plot_accuracy_subplots_vertical_bars(self):
-        # Plot the accuracy results
+        """Plot the accuracy results with colors representing the model family."""
         accuracy = {}
         datasets = set()
 
@@ -804,7 +823,6 @@ class EnergyAnalyzer:
             accuracy[model][dataset] = metrics.accuracy
             datasets.update(accuracy[model].keys())
 
-        # datasets = sorted(datasets)
         num_datasets = len(datasets)
 
         fig, axes = plt.subplots(num_datasets, 1, figsize=(8, 2 * num_datasets + 1), sharex=True)
@@ -825,7 +843,8 @@ class EnergyAnalyzer:
                 if dataset in accuracy[model]:
                     models.append(model)
                     accuracies.append(accuracy[model][dataset])
-                    colors.append(self.colors.get(dataset, 'gray'))
+                    model_family = "_".join(model.split("_")[:2])
+                    colors.append(self.colors.get(model_family, 'gray'))
                 else:
                     models.append(model)
                     accuracies.append(0)
@@ -834,11 +853,14 @@ class EnergyAnalyzer:
             ax.bar(models, accuracies, color=colors)
             ax.set_xticklabels(models, rotation=45, ha='right')
 
-        # Add legend
-        # utils.plot_legend(axes[0], location='outside')
+        # Create legend
+        model_families = { "_".join(model.split("_")[:2]) for model in accuracy }
+        handles = [plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=self.colors.get(family, 'gray'), markersize=10) for family in model_families]
+        labels = list(model_families)
+
+        fig.legend(handles, labels, title="Model Family", loc='lower center', ncol=len(labels), bbox_to_anchor=(0.5, -0.05))
+
         plt.tight_layout()
-        # plt.savefig("accuracy_comparison.pdf")
-        # plt.show()
         return plt.gcf()
 
     def plot_tokens_per_second(self):
@@ -1176,6 +1198,93 @@ class EnergyAnalyzer:
 
         return accuracy_figure, energy_figure
 
+    def plot_quantization_impact(self, dataset_name: str = None):
+        """Analyze the impact of quantization on energy savings and accuracy with 'q3_K_S' as the baseline."""
+        baseline_quantization = 'q3_K_S'
+        metrics_list = []
+        
+        for (ds_name, model_name), metrics in self.metrics.items():
+            if dataset_name is None or ds_name.lower() == dataset_name.lower():
+                model_family = "_".join(model_name.split('_')[:2])  # Extract model family (e.g., "gemma_2b")
+                metrics_list.append({
+                    'Model': model_name,
+                    'Dataset': ds_name,
+                    'Mean Energy (J)': metrics.mean_energy,
+                    'Accuracy': metrics.accuracy,
+                    'Quantization': metrics.quantization_level,
+                    'Model Family': model_family
+                })
+        
+        df = pd.DataFrame(metrics_list)
+        
+        # Filter out models that do not have the baseline quantization level
+        baseline_models = df[df['Quantization'] == baseline_quantization]['Model'].unique()
+        df = df[df['Model'].isin(baseline_models)]
+        
+        # Calculate relative metrics
+        relative_metrics = []
+        for model in baseline_models:
+            baseline_metrics = df[(df['Model'] == model) & (df['Quantization'] == baseline_quantization)]
+            if baseline_metrics.empty:
+                continue
+            baseline_energy = baseline_metrics['Mean Energy (J)'].values[0]
+            baseline_accuracy = baseline_metrics['Accuracy'].values[0]
+            
+            for _, row in df[df['Model'] == model].iterrows():
+                relative_metrics.append({
+                    'Model': model,
+                    'Quantization': row['Quantization'],
+                    'Energy Saving (%)': 100 * (1 - row['Mean Energy (J)'] / baseline_energy),
+                    'Accuracy Loss (pp)': 100 * (baseline_accuracy - row['Accuracy'])
+                })
+        
+        relative_df = pd.DataFrame(relative_metrics)
+        
+        # Create figure with two subplots
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+        
+        # Sort relative_metrics based on the defined order
+        relative_df['Quantization_Rank'] = relative_df['Quantization'].apply(self._get_quantization_rank)
+        relative_df = relative_df.sort_values(by='Quantization_Rank')
+        
+        # Plot energy savings
+        sns.barplot(
+            data=relative_df,
+            x='Quantization',
+            y='Energy Saving (%)',
+            hue='Model',
+            ax=ax1,
+            palette=self.colors,
+            order=self.QUANTIZATION_ORDER
+        )
+        ax1.set_title('Energy Savings by Quantization Level')
+        ax1.set_xlabel('Quantization Level')
+        ax1.set_ylabel('Energy Saving (%)')
+        ax1.grid(True, alpha=0.3)
+        ax1.tick_params(axis='x', rotation=45)
+        
+        # Plot accuracy loss
+        sns.barplot(
+            data=relative_df,
+            x='Quantization',
+            y='Accuracy Loss (pp)',
+            hue='Model',
+            ax=ax2,
+            palette=self.colors,
+            order=self.QUANTIZATION_ORDER
+        )
+        ax2.set_title('Accuracy Impact by Quantization Level')
+        ax2.set_xlabel('Quantization Level')
+        ax2.set_ylabel('Accuracy Loss (percentage points)')
+        ax2.grid(True, alpha=0.3)
+        ax2.tick_params(axis='x', rotation=45)
+        
+        # Add legend
+        handles, labels = ax1.get_legend_handles_labels()
+        fig.legend(handles, labels, loc='center right', bbox_to_anchor=(1.15, 0.5))
+        
+        plt.tight_layout()
+        return fig
 
 def main():
     parser = argparse.ArgumentParser(description='Analyze LLM energy consumption data')
@@ -1201,10 +1310,13 @@ def main():
         # 'energy_distribution_subplots': analyzer.plot_energy_distribution(args.dataset, subplots=True),
         # 'energy_distribution_subplots_log': analyzer.plot_energy_distribution(args.dataset, log_scale=True, subplots=True),
         # 'token_impact': analyzer.analyze_token_length_impact(args.dataset),
-        # # 'quantization_impact': analyzer.analyze_quantization_impact2(args.dataset)
+        # 'quantization_impact1': analyzer.analyze_quantization_impact(args.dataset),
+        # 'quantization_impact2': analyzer.analyze_quantization_impact2(args.dataset, average=False),
+        # 'quantization_impact2_avg': analyzer.analyze_quantization_impact2(args.dataset, average=True),
+        # 'quantization_impact3': analyzer.plot_quantization_impact(args.dataset),
         # 'size_impact': analyzer.plot_energy_per_token_vs_size(args.dataset),
         # 'tokens_per_second': analyzer.plot_tokens_per_second(),
-        # 'accuracy_comparison': analyzer.plot_accuracy_subplots_vertical_bars(),
+        'accuracy_comparison': analyzer.plot_accuracy_subplots_vertical_bars(),
         # 'average_accuracy': analyzer.plot_average_accuracy(),
         # 'model_size_vs_energy': analyzer.plot_model_size_vs_metrics(fit_regression=True, in_bytes=False, log_scale=True)[0],
         # 'model_size_vs_accuracy': analyzer.plot_model_size_vs_metrics(fit_regression=True, in_bytes=False, log_scale=True)[1],
@@ -1212,8 +1324,8 @@ def main():
         # 'model_size_vs_accuracy_bytes': analyzer.plot_model_size_vs_metrics(fit_regression=True, in_bytes=True, log_scale=False)[1],
         # 'model_size_vs_energy_bytes_log': analyzer.plot_model_size_vs_metrics(fit_regression=True, in_bytes=True, log_scale=True)[0],
         # 'model_size_vs_accuracy_bytes_log': analyzer.plot_model_size_vs_metrics(fit_regression=True, in_bytes=True, log_scale=True)[1],
-        'model_size_vs_metrics_grid': analyzer.plot_model_size_vs_metrics_grid(fit_regression=True, in_bytes=True, log_scale=True)[0],
-        'model_size_vs_metrics_grid_energy': analyzer.plot_model_size_vs_metrics_grid(fit_regression=True, in_bytes=True, log_scale=True)[1],
+        # 'model_size_vs_metrics_grid': analyzer.plot_model_size_vs_metrics_grid(fit_regression=True, in_bytes=True, log_scale=True)[0],
+        # 'model_size_vs_metrics_grid_energy': analyzer.plot_model_size_vs_metrics_grid(fit_regression=True, in_bytes=True, log_scale=True)[1],
     }
     
     for name, fig in plots.items():
