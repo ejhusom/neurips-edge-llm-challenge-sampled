@@ -1046,9 +1046,6 @@ class EnergyAnalyzer:
         pivot_df = pivot_df.sort_values(by=["Base Model", "Quantization_Rank"], ascending=[True, False])
         pivot_df.drop(columns=["Base Model", "Quantization_Rank"], inplace=True)
 
-
-
-
         # Plot the tokens per second with horizontal bars
         ax = pivot_df.plot(kind='barh', figsize=(7, 9), color=[self.colors.get(dataset, 'gray') for dataset in pivot_df.columns])
 
@@ -1087,6 +1084,29 @@ class EnergyAnalyzer:
 
         plt.tight_layout()
         # plt.savefig("output/tokens_per_second.pdf")
+
+        # Add average values to pivot_df, both per model and per dataset
+        pivot_df["Average"] = pivot_df.mean(axis=1)
+        pivot_df.loc["Average"] = pivot_df.mean(axis=0)
+
+
+        # Write the results (values) to a CSV file
+        pivot_df.to_csv("output/tokens_per_second.csv")
+
+        # Write to latex
+        latex_table = pivot_df.to_latex(
+            float_format="%.2f",
+            na_rep="-",
+            caption="Tokens per Second for All Models",
+            label="tab:tokens_per_second"
+        )
+
+        # Escape underscores
+        latex_table = latex_table.replace("_", r"\_")
+
+        with open("output/tokens_per_second.tex", "w") as f:
+            f.write(latex_table)
+
         return plt.gcf()
 
     def plot_model_size_vs_metrics(self, fit_regression=False, in_bytes=False, log_scale=True):
@@ -1847,6 +1867,112 @@ class EnergyAnalyzer:
         
         return plt.gcf()
 
+    def analyze_inference_latency(self, separate_correct_incorrect=False):
+        """Analyze inference latency for each model on each dataset."""
+        latency_data = []
+        for (dataset_name, model_name), metrics in self.metrics.items():
+            df = self.raw_data[f"{dataset_name}_{model_name}"]
+            df['total_duration'] = pd.to_timedelta(df["total_duration"]).dt.total_seconds()
+            base_model = "_".join(model_name.split("_")[:2])  # Extract base model name
+            if separate_correct_incorrect:
+                correct_latency = df[df['evaluation'] == True]['total_duration'].mean()
+                incorrect_latency = df[df['evaluation'] == False]['total_duration'].mean()
+                latency_data.extend([{
+                    'Dataset': dataset_name,
+                    'Model': model_name,
+                    'Base Model': base_model,
+                    'Latency (s)': latency,
+                    'Evaluation': 'Correct' if evaluation else 'Incorrect'
+                } for latency, evaluation in zip(df['total_duration'], df['evaluation'])])
+            else:
+                latency_data.extend([{
+                    'Dataset': dataset_name,
+                    'Model': model_name,
+                    'Base Model': base_model,
+                    'Latency (s)': latency
+                } for latency in df['total_duration']])
+        
+        df = pd.DataFrame(latency_data)
+        
+        # Calculate average latency across all datasets for each model
+        avg_latency_df = df.groupby('Model')['Latency (s)'].mean().reset_index()
+        avg_latency_df.columns = ['Model', 'Average Latency (s)']
+        
+        # Merge average latency with the original dataframe
+        df = df.merge(avg_latency_df, on='Model')
+        
+        # Calculate average latency across all models for each dataset
+        avg_latency_per_dataset = df.groupby('Dataset')['Latency (s)'].mean().reset_index()
+        avg_latency_per_dataset.columns = ['Dataset', 'Average Latency per Dataset (s)']
+        
+        # Merge average latency per dataset with the original dataframe
+        df = df.merge(avg_latency_per_dataset, on='Dataset')
+
+        # Calculate average latency across all models and datasets
+        avg_latency = df['Latency (s)'].mean()
+        # Calculate the average latency for each model
+        avg_latency_per_model = df.groupby('Model')['Latency (s)'].mean().reset_index()
+        avg_latency_per_model.columns = ['Model', 'Average Latency (s)']
+        # Calculate the average latency for each dataset
+        avg_latency_per_dataset = df.groupby('Dataset')['Latency (s)'].mean().reset_index()
+        avg_latency_per_dataset.columns = ['Dataset', 'Average Latency (s)']
+        # Calculate the average latency for each model on each dataset, i.e., m*n rows where m is the number of models and n is the number of datasets
+        avg_latency_per_model_dataset = df.groupby(['Model', 'Dataset'])['Latency (s)'].mean().reset_index()
+        avg_latency_per_model_dataset.columns = ['Model', 'Dataset', 'Average Latency (s)']
+
+        # Write the average latency to a file
+        with open("output/inference_latency_average.txt", "w") as f:
+            f.write(f"Average Latency across all models and datasets: {avg_latency:.2f} s\n")
+            f.write("\nAverage Latency per Model:\n")
+            for _, row in avg_latency_per_model.iterrows():
+                f.write(f"{row['Model']}: {row['Average Latency (s)']:.2f} s\n")
+            f.write("\nAverage Latency per Dataset:\n")
+            for _, row in avg_latency_per_dataset.iterrows():
+                f.write(f"{row['Dataset']}: {row['Average Latency (s)']:.2f} s\n")
+            f.write("\nAverage Latency per Model on each Dataset:\n")
+            for _, row in avg_latency_per_model_dataset.iterrows():
+                f.write(f"{row['Model']} on {row['Dataset']}: {row['Average Latency (s)']:.2f} s\n")
+
+        
+        # Plot the results
+        datasets = df['Dataset'].unique()
+        num_datasets = len(datasets)
+        fig, axes = plt.subplots(num_datasets, 1, figsize=(12, 2 * num_datasets), sharex=True)
+        if num_datasets == 1:
+            axes = [axes]
+
+        for ax, dataset in zip(axes, datasets):
+            sns.boxplot(
+                data=df[df['Dataset'] == dataset],
+                x='Model',
+                y='Latency (s)',
+                hue='Evaluation' if separate_correct_incorrect else 'Base Model',
+                ax=ax,
+                palette=utils.get_correctness_colors() if separate_correct_incorrect else self.colors,
+                showfliers=False,
+                legend=separate_correct_incorrect,
+            )
+            ax.set_title(f'Inference Latency Distribution for {dataset}')
+            ax.set_xlabel('Model')
+            ax.set_ylabel('Latency (s)')
+            plt.setp(ax.get_xticklabels(), rotation=45, ha='right', rotation_mode='anchor')
+
+        # Add shared legend at the bottom
+        model_families = df['Base Model'].unique()
+        handles = [plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=self.colors.get(family, 'gray'), markersize=10) for family in model_families]
+        labels = list(model_families)
+
+        fig.legend(handles, labels, title="Base Model", loc='lower center', ncol=len(labels), bbox_to_anchor=(0.5, -0.05))
+
+        plt.tight_layout()
+        plt.savefig("output/inference_latency_distribution.pdf")
+        
+        # Print summary statistics
+        print("\nInference Latency Summary:")
+        print(df[['Dataset', 'Model', 'Latency (s)'] + (['Evaluation'] if separate_correct_incorrect else [])])
+        
+        return plt.gcf()
+
 def main():
     parser = argparse.ArgumentParser(description='Analyze LLM energy consumption data')
     parser.add_argument('files', nargs='+', help='CSV files to analyze')
@@ -1862,7 +1988,7 @@ def main():
     
     # Generate and save plots
     plots = {
-        'energy_accuracy': analyzer.plot_energy_accuracy_tradeoff(args.dataset),
+        # 'energy_accuracy': analyzer.plot_energy_accuracy_tradeoff(args.dataset),
         # 'energy_accuracy_log': analyzer.plot_energy_accuracy_tradeoff(args.dataset, log_scale=True),
         # 'energy_distribution': analyzer.plot_energy_distribution(args.dataset),
         # 'energy_distribution_log': analyzer.plot_energy_distribution(args.dataset, log_scale=True),
@@ -1876,7 +2002,7 @@ def main():
         # 'quantization_impact2_avg': analyzer.analyze_quantization_impact2(args.dataset, average=True),
         # 'quantization_impact3': analyzer.plot_quantization_impact(args.dataset),
         # 'size_impact': analyzer.plot_energy_per_token_vs_size(args.dataset),
-        # 'tokens_per_second': analyzer.plot_tokens_per_second(),
+        'tokens_per_second': analyzer.plot_tokens_per_second(),
         # 'tokens_per_second_total_duration': analyzer.plot_tokens_per_second(use_total_duration=True),
         # 'accuracy_comparison': analyzer.plot_accuracy_subplots_vertical_bars(),
         # 'average_accuracy': analyzer.plot_average_accuracy(),
@@ -1900,6 +2026,7 @@ def main():
         # 'response_length_energy_correlation': analyzer.analyze_response_length_energy_correlation(args.dataset),
         # 'energy_average_accuracy_tradeoff': analyzer.plot_energy_average_accuracy_tradeoff(log_scale=False),
         # 'energy_average_accuracy_tradeoff_log': analyzer.plot_energy_average_accuracy_tradeoff(log_scale=True),
+        'inference_latency': analyzer.analyze_inference_latency(),
     }
     
     for name, fig in plots.items():
@@ -1944,3 +2071,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

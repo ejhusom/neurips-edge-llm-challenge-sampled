@@ -115,6 +115,15 @@ def get_model_colors():
         "truthfulqa": "purple",
     }
 
+def get_correctness_colors():
+    """Return a dictionary of correctness colors."""
+    return {
+        "correct": "green",
+        "Correct": "green",
+        "incorrect": "red",
+        "Incorrect": "red",
+    }
+
 def plot_legend(ax, location="best"):
     colors = {
         "qwen25_05b": "skyblue",
