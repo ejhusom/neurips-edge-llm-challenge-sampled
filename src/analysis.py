@@ -856,7 +856,47 @@ class EnergyAnalyzer:
             float_format="%.2f",
             na_rep="-",
             caption="Mean and Std Energy per Response for Base Models Averaged Across Datasets",
-            label="tab:energy_per_token"
+            label="tab:energy_per_response"
+        )
+
+        # Make sure to escape any underscores
+        latex_table = latex_table.replace("_", r"\_")
+
+        return latex_table
+
+    def generate_energy_per_response_latex_table_by_dataset(self) -> str:
+        """Generate a LaTeX table of mean and std energy per response for each model on each dataset."""
+        energy_data = []
+        for (dataset_name, model_name), metrics in self.metrics.items():
+            energy_data.append({
+                'Dataset': dataset_name,
+                'Model': model_name,
+                'Mean Energy per Response (J)': metrics.mean_energy,
+                'Std Energy per Response (J)': metrics.std_energy
+            })
+        
+        df = pd.DataFrame(energy_data)
+        pivot_df_avg = df.pivot(index='Model', columns='Dataset', values='Mean Energy per Response (J)')
+        pivot_df_std = df.pivot(index='Model', columns='Dataset', values='Std Energy per Response (J)')
+
+        # Combine the average and std tables into one with the format "avg ± std"
+        combined_df = pd.DataFrame()
+        for col in pivot_df_avg.columns:
+            combined_df[col] = pivot_df_avg[col].map(lambda x: f"{x:.2f}") + " ± " + pivot_df_std[col].map(lambda x: f"{x:.2f}")
+
+        # Add a column for the average energy consumption across datasets for each model
+        combined_df['Average Energy per Response (J)'] = pivot_df_avg.mean(axis=1).map(lambda x: f"{x:.2f}") + " ± " + pivot_df_std.mean(axis=1).map(lambda x: f"{x:.2f}")
+
+        # Add a row for the average energy consumption across models for each dataset
+        combined_df.loc['Average Energy per Response (J)'] = pivot_df_avg.mean(axis=0).map(lambda x: f"{x:.2f}") + " ± " + pivot_df_std.mean(axis=0).map(lambda x: f"{x:.2f}")
+
+        # Sort the pivot_df based on model family and quantization rank
+        combined_df = combined_df.sort_index(key=lambda x: x.map(lambda y: ("_".join(y.split('_')[:2]), self._get_quantization_rank("_".join(y.split('_')[3:])))))
+
+        latex_table = combined_df.to_latex(
+            na_rep="-",
+            caption="Mean and Std Energy per Response for Models on Various Datasets",
+            label="tab:energy_per_response_by_dataset"
         )
 
         # Make sure to escape any underscores
@@ -2099,6 +2139,10 @@ def main():
     response_time_latex_table = analyzer.generate_response_length_latex_table()
     with open(Path(args.output_dir) / "response_time_table.tex", "w") as f:
         f.write(response_time_latex_table)
+
+    energy_per_response_latex_table_by_dataset = analyzer.generate_energy_per_response_latex_table_by_dataset()
+    with open(Path(args.output_dir) / "energy_per_response_table_by_dataset.tex", "w") as f:
+        f.write(energy_per_response_latex_table_by_dataset)
 
     # Print some basic statistics
     print("\nSummary Statistics:")
