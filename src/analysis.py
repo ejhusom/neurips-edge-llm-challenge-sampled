@@ -230,14 +230,6 @@ class EnergyAnalyzer:
         for _, row in df.iterrows():
             if row['Pareto_Optimal']:
                 model_name = "_".join(row['Model'].split('_')[:2])  # Show model family and size
-                # plt.annotate(
-                #     f"{model_name}\n({row['Quantization']})",
-                #     (row['Mean Energy (J)'], row['Accuracy']),
-                #     xytext=(5, 5),
-                #     textcoords='offset points',
-                #     fontsize=8,
-                #     bbox=dict(facecolor='white', edgecolor='none', alpha=0.0)
-                # )
                 texts.append(plt.text(
                     row['Mean Energy (J)'], row['Accuracy'],
                     f"{model_name} ({row['Quantization']})",
@@ -268,7 +260,19 @@ class EnergyAnalyzer:
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
         plt.savefig("output/energy_accuracy_tradeoff.pdf")
-        return plt.gcf() 
+        
+        # Print average accuracy and energy consumption for Pareto optimal models
+        pareto_avg_accuracy = pareto['Accuracy'].mean()
+        pareto_avg_energy = pareto['Mean Energy (J)'].mean()
+        print(f"Pareto-optimal models average accuracy: {pareto_avg_accuracy:.2f}")
+        print(f"Pareto-optimal models average energy consumption: {pareto_avg_energy:.2f} J")
+        
+        # Print accuracy and energy consumption for each Pareto optimal model
+        print("\nPareto-optimal models details:")
+        for _, row in pareto.iterrows():
+            print(f"Model: {row['Model']}, Accuracy: {row['Accuracy']:.2f}, Mean Energy (J): {row['Mean Energy (J)']:.2f}")
+        
+        return plt.gcf()
     
     def plot_energy_distribution(self, dataset_name: str = None, per_token=False, log_scale=False, subplots=False):
         """Plot energy consumption distribution for each model.
@@ -309,12 +313,16 @@ class EnergyAnalyzer:
                     y='Energy (J)',
                     hue='Base Model',
                     ax=ax,
-                    palette=self.colors
+                    palette=self.colors,
+                    legend=False
                 )
                 ax.set_title(f'Energy Consumption Distribution by Model for {dataset}')
                 ax.set_xlabel('Model')
                 ax.set_ylabel('Energy (J)')
-                ax.tick_params(axis='x', rotation=45)
+                # ax.tick_params(axis='x', rotation=45)
+                # ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
+                plt.setp(ax.get_xticklabels(), rotation=45, ha='right', rotation_mode='anchor')
+
                 if log_scale:
                     ax.set_yscale('log')
             plt.tight_layout()
@@ -713,36 +721,38 @@ class EnergyAnalyzer:
         return plt.gcf()
 
     def generate_accuracy_latex_table(self) -> str:
-        """Generate a LaTeX table of average accuracy for each model on each dataset."""
+        """Generate a LaTeX table of average and std accuracy for each model on each dataset."""
         accuracy_data = []
         for (dataset_name, model_name), metrics in self.metrics.items():
-            model_family = "_".join(model_name.split('_')[:2])
+            df = self.raw_data[f"{dataset_name}_{model_name}"]
             accuracy_data.append({
                 'Dataset': dataset_name,
                 'Model': model_name,
-                'Accuracy': metrics.accuracy,
-                'Quantization': metrics.quantization_level,
-                'Base Model': model_family
+                'Average Accuracy': df['evaluation'].mean(),
+                'Std Accuracy': df['evaluation'].std()
             })
         
         df = pd.DataFrame(accuracy_data)
-        df['Quantization_Rank'] = df['Quantization'].apply(self._get_quantization_rank)
-        df = df.sort_values(by=['Base Model', 'Quantization_Rank'])
-        pivot_df = df.pivot(index='Model', columns='Dataset', values='Accuracy')
+        pivot_df_avg = df.pivot(index='Model', columns='Dataset', values='Average Accuracy')
+        pivot_df_std = df.pivot(index='Model', columns='Dataset', values='Std Accuracy')
+
+        # Combine the average and std tables into one with the format "avg ± std"
+        combined_df = pd.DataFrame()
+        for col in pivot_df_avg.columns:
+            combined_df[col] = pivot_df_avg[col].map(lambda x: f"{x:.2f}") + " ± " + pivot_df_std[col].map(lambda x: f"{x:.2f}")
 
         # Add a column for the average accuracy across datasets for each model
-        pivot_df['Average Accuracy'] = pivot_df.mean(axis=1)
+        combined_df['Average Accuracy'] = pivot_df_avg.mean(axis=1).map(lambda x: f"{x:.2f}") + " ± " + pivot_df_std.mean(axis=1).map(lambda x: f"{x:.2f}")
 
         # Add a row for the average accuracy across models for each dataset
-        pivot_df.loc['Average Accuracy'] = pivot_df.mean(axis=0)
+        combined_df.loc['Average Accuracy'] = pivot_df_avg.mean(axis=0).map(lambda x: f"{x:.2f}") + " ± " + pivot_df_std.mean(axis=0).map(lambda x: f"{x:.2f}")
 
         # Sort the pivot_df based on model family and quantization rank
-        pivot_df = pivot_df.sort_index(key=lambda x: x.map(lambda y: ("_".join(y.split('_')[:2]), self._get_quantization_rank("_".join(y.split('_')[3:])))))
+        combined_df = combined_df.sort_index(key=lambda x: x.map(lambda y: ("_".join(y.split('_')[:2]), self._get_quantization_rank("_".join(y.split('_')[3:])))))
 
-        latex_table = pivot_df.to_latex(
-            float_format="%.2f",
+        latex_table = combined_df.to_latex(
             na_rep="-",
-            caption="Average Accuracy of Models on Various Datasets",
+            caption="Average and Std Accuracy of Models on Various Datasets",
             label="tab:accuracy"
         )
 
@@ -752,36 +762,38 @@ class EnergyAnalyzer:
         return latex_table
 
     def generate_energy_latex_table(self) -> str:
-        """Generate a LaTeX table of mean energy consumption for each model on each dataset."""
+        """Generate a LaTeX table of mean and std energy consumption for each model on each dataset."""
         energy_data = []
         for (dataset_name, model_name), metrics in self.metrics.items():
-            model_family = "_".join(model_name.split('_')[:2])
+            df = self.raw_data[f"{dataset_name}_{model_name}"]
             energy_data.append({
                 'Dataset': dataset_name,
                 'Model': model_name,
-                'Mean Energy per Token (J/tok)': metrics.mean_energy_per_token,
-                'Quantization': metrics.quantization_level,
-                'Base Model': model_family
+                'Mean Energy per Token (J/tok)': df['energy_per_token'].mean(),
+                'Std Energy per Token (J/tok)': df['energy_per_token'].std()
             })
         
         df = pd.DataFrame(energy_data)
-        df['Quantization_Rank'] = df['Quantization'].apply(self._get_quantization_rank)
-        df = df.sort_values(by=['Base Model', 'Quantization_Rank'])
-        pivot_df = df.pivot(index='Model', columns='Dataset', values='Mean Energy per Token (J/tok)')
+        pivot_df_avg = df.pivot(index='Model', columns='Dataset', values='Mean Energy per Token (J/tok)')
+        pivot_df_std = df.pivot(index='Model', columns='Dataset', values='Std Energy per Token (J/tok)')
+
+        # Combine the average and std tables into one with the format "avg ± std"
+        combined_df = pd.DataFrame()
+        for col in pivot_df_avg.columns:
+            combined_df[col] = pivot_df_avg[col].map(lambda x: f"{x:.2f}") + " ± " + pivot_df_std[col].map(lambda x: f"{x:.2f}")
 
         # Add a column for the average energy consumption across datasets for each model
-        pivot_df['Average Energy per Token (J/tok)'] = pivot_df.mean(axis=1)
+        combined_df['Average Energy per Token (J/tok)'] = pivot_df_avg.mean(axis=1).map(lambda x: f"{x:.2f}") + " ± " + pivot_df_std.mean(axis=1).map(lambda x: f"{x:.2f}")
 
         # Add a row for the average energy consumption across models for each dataset
-        pivot_df.loc['Average Energy per Token (J/tok)'] = pivot_df.mean(axis=0)
+        combined_df.loc['Average Energy per Token (J/tok)'] = pivot_df_avg.mean(axis=0).map(lambda x: f"{x:.2f}") + " ± " + pivot_df_std.mean(axis=0).map(lambda x: f"{x:.2f}")
 
         # Sort the pivot_df based on model family and quantization rank
-        pivot_df = pivot_df.sort_index(key=lambda x: x.map(lambda y: ("_".join(y.split('_')[:2]), self._get_quantization_rank("_".join(y.split('_')[3:])))))
+        combined_df = combined_df.sort_index(key=lambda x: x.map(lambda y: ("_".join(y.split('_')[:2]), self._get_quantization_rank("_".join(y.split('_')[3:])))))
 
-        latex_table = pivot_df.to_latex(
-            float_format="%.2f",
+        latex_table = combined_df.to_latex(
             na_rep="-",
-            caption="Mean Energy Consumption of Models on Various Datasets",
+            caption="Mean and Std Energy Consumption of Models on Various Datasets",
             label="tab:energy"
         )
 
@@ -810,8 +822,81 @@ class EnergyAnalyzer:
         latex_table = summary_df.to_latex(
             float_format="%.2f",
             na_rep="-",
-            caption="Mean and Std Energy per Token for Model Families Averaged Across Datasets",
+            caption="Mean and Std Energy per Token for Base Models Averaged Across Datasets",
             label="tab:energy_per_token"
+        )
+
+        # Make sure to escape any underscores
+        latex_table = latex_table.replace("_", r"\_")
+
+        return latex_table
+
+    def generate_energy_per_response_latex_table(self) -> str:
+        """Generate a LaTeX table of mean and std energy per token for each model family, averaged across all datasets."""
+        energy_data = []
+        for (dataset_name, model_name), metrics in self.metrics.items():
+            model_family = "_".join(model_name.split('_')[:2])
+            energy_data.append({
+                'Base Model': model_family,
+                'Mean Energy per Response (J/tok)': metrics.mean_energy,
+                'Std Energy per Response (J/tok)': metrics.std_energy
+            })
+        
+        df = pd.DataFrame(energy_data)
+        summary_df = df.groupby('Base Model').agg({
+            'Mean Energy per Response (J/tok)': 'mean',
+            'Std Energy per Response (J/tok)': 'mean'
+        }).reset_index()
+
+        latex_table = summary_df.to_latex(
+            float_format="%.2f",
+            na_rep="-",
+            caption="Mean and Std Energy per Response for Base Models Averaged Across Datasets",
+            label="tab:energy_per_token"
+        )
+
+        # Make sure to escape any underscores
+        latex_table = latex_table.replace("_", r"\_")
+
+        return latex_table
+
+    def generate_response_length_latex_table(self) -> str:
+        """Generate a LaTeX table of average and std response length (eval_count) for each model on each dataset."""
+        response_length_data = []
+        for (dataset_name, model_name), metrics in self.metrics.items():
+            df = self.raw_data[f"{dataset_name}_{model_name}"]
+            response_length_data.append({
+                'Dataset': dataset_name,
+                'Model': model_name,
+                'Average Response Length': df['eval_count'].mean(),
+                'Std Response Length': df['eval_count'].std()
+            })
+        
+        df = pd.DataFrame(response_length_data)
+        pivot_df_avg = df.pivot(index='Model', columns='Dataset', values='Average Response Length')
+        pivot_df_std = df.pivot(index='Model', columns='Dataset', values='Std Response Length')
+
+        # Combine the average and std tables into one with the format "avg ± std"
+        combined_df = pd.DataFrame()
+        for col in pivot_df_avg.columns:
+            combined_df[col] = pivot_df_avg[col].map(lambda x: f"{x:.2f}") + " ± " + pivot_df_std[col].map(lambda x: f"{x:.2f}")
+
+        # Add a column for the average response length across datasets for each model
+        combined_df['Average Response Length'] = pivot_df_avg.mean(axis=1).map(lambda x: f"{x:.2f}") + " ± " + pivot_df_std.mean(axis=1).map(lambda x: f"{x:.2f}")
+
+        # Add a row for the average response length across models for each dataset
+        combined_df.loc['Average Response Length'] = pivot_df_avg.mean(axis=0).map(lambda x: f"{x:.2f}") + " ± " + pivot_df_std.mean(axis=0).map(lambda x: f"{x:.2f}")
+
+        # Add the average of the average response length across all models and datasets
+        combined_df.loc['Average Response Length', 'Average Response Length'] = df['Average Response Length'].mean()
+
+        # Sort the pivot_df based on model family and quantization rank
+        combined_df = combined_df.sort_index(key=lambda x: x.map(lambda y: ("_".join(y.split('_')[:2]), self._get_quantization_rank("_".join(y.split('_')[3:])))))
+
+        latex_table = combined_df.to_latex(
+            na_rep="-",
+            caption="Average and Std Response Length for Models on Various Datasets",
+            label="tab:response_length"
         )
 
         # Make sure to escape any underscores
@@ -1497,6 +1582,263 @@ class EnergyAnalyzer:
         dataset_summary = df.groupby('Dataset').describe()
         dataset_summary.to_csv("output/accuracy_summary_by_dataset.csv")
 
+    def plot_response_length_distribution(self, dataset_name: str = None, log_scale=False, subplots=False):
+        """Plot response length distribution for each model.
+        
+        If subplots is True, plot each dataset in a subplot with shared x-axis.
+        """
+        column = 'eval_count'
+
+        data = []
+        for experiment_name, df in self.raw_data.items():
+            ds_name = utils.get_dataset_name(experiment_name)
+            model_name = utils.get_model_name(experiment_name)
+            model_family = "_".join(model_name.split("_")[:3])  # Extract model family
+            if dataset_name is None or ds_name.lower() == dataset_name.lower():
+                data.extend([{
+                    'Model': model_name,
+                    'Dataset': ds_name,
+                    'Response Length': length,
+                    'Base Model': model_family
+                } for length in df[column]])
+        
+        df = pd.DataFrame(data)
+
+        if log_scale:
+            showfliers = True
+        else:
+            showfliers = False
+
+        if subplots:
+            datasets = df['Dataset'].unique()
+            num_datasets = len(datasets)
+            fig, axes = plt.subplots(num_datasets, 1, figsize=(12, 3 * num_datasets), sharex=True)
+            if num_datasets == 1:
+                axes = [axes]
+
+            for ax, dataset in zip(axes, datasets):
+                sns.boxplot(
+                    data=df[df['Dataset'] == dataset],
+                    x='Model',
+                    y='Response Length',
+                    showfliers=showfliers
+                )
+                ax.set_title(f'Response Length Distribution by Model for {dataset}')
+                ax.set_xlabel('Model')
+                ax.set_ylabel('Response Length')
+                ax.tick_params(axis='x', rotation=45)
+                if log_scale:
+                    ax.set_yscale('log')
+            plt.tight_layout()
+
+            # Add shared legend at the bottom
+            model_families = df['Base Model'].unique()
+            handles = [plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=self.colors.get(family, 'gray'), markersize=10) for family in model_families]
+            labels = list(model_families)
+
+            fig.legend(handles, labels, title="Base Model", loc='lower center', ncol=len(labels), bbox_to_anchor=(0.5, -0.05))
+        else:
+            plt.figure(figsize=(12, 6))
+            sns.boxplot(
+                data=df,
+                x='Model',
+                y='Response Length',
+                hue='Base Model',
+                palette=self.colors,
+                showfliers=showfliers
+            )
+            plt.xticks(rotation=45, ha='right')
+            if log_scale:
+                plt.yscale('log')
+            plt.title('Response Length Distribution by Model')
+            plt.tight_layout()
+        
+        plt.savefig("output/response_length_distribution.pdf")
+        return plt.gcf()
+
+    def analyze_response_length_energy_correlation(self, dataset_name: str = None):
+        """Analyze the correlation between response length and energy consumption per prompt."""
+        correlation_data = []
+        for (ds_name, model_name), metrics in self.metrics.items():
+            if dataset_name is None or ds_name.lower() == dataset_name.lower():
+                df = self.raw_data[f"{ds_name}_{model_name}"]
+                correlation_data.append({
+                    'Dataset': ds_name,
+                    'Model': model_name,
+                    'Correlation': df['eval_count'].corr(df['energy_consumption_joules'])
+                })
+        
+        df = pd.DataFrame(correlation_data)
+        pivot_df = df.pivot(index='Model', columns='Dataset', values='Correlation')
+
+        # Add a column for the average correlation across datasets for each model
+        pivot_df['Average Correlation'] = pivot_df.mean(axis=1)
+
+        # Add a row for the average correlation across models for each dataset
+        pivot_df.loc['Average Correlation'] = pivot_df.mean(axis=0)
+
+        # Sort the pivot_df based on model family and quantization rank
+        pivot_df = pivot_df.sort_index(key=lambda x: x.map(lambda y: ("_".join(y.split('_')[:2]), self._get_quantization_rank("_".join(y.split('_')[3:])))))
+
+        # Plot the correlation
+        plt.figure(figsize=(10, 7))
+        sns.heatmap(pivot_df, annot=True, cmap='coolwarm', center=0)
+        plt.title('Correlation between Response Length and Energy Consumption')
+        plt.tight_layout()
+        plt.savefig("output/response_length_energy_correlation.pdf")
+        
+        # Save the correlation data as a LaTeX table
+        latex_table = pivot_df.to_latex(
+            na_rep="-",
+            caption="Correlation between Response Length and Energy Consumption",
+            label="tab:response_length_energy_correlation"
+        )
+        with open("output/response_length_energy_correlation_table.tex", "w") as f:
+            f.write(latex_table)
+        
+        return plt.gcf()
+
+    def plot_energy_average_accuracy_tradeoff(self, log_scale=False):
+        """Plot energy consumption vs average accuracy across all datasets for all models"""
+        metrics_list = []
+        for (ds_name, model_name), metrics in self.metrics.items():
+            model_family = "_".join(model_name.split('_')[:2])  # Extract model family (e.g., "gemma_2b")
+            metrics_list.append({
+                'Model': model_name,
+                'Dataset': ds_name,
+                'Mean Energy (J)': metrics.mean_energy,
+                'Accuracy': metrics.accuracy,
+                'Quantization': metrics.quantization_level,
+                'Base Model': model_family
+            })
+        
+        df = pd.DataFrame(metrics_list)
+        
+        # Calculate average accuracy across all datasets for each model
+        avg_accuracy_df = df.groupby('Model')['Accuracy'].mean().reset_index()
+        avg_accuracy_df.columns = ['Model', 'Average Accuracy']
+        
+        # Merge average accuracy with the original dataframe
+        df = df.merge(avg_accuracy_df, on='Model')
+        
+        # Find Pareto-optimal points
+        def is_pareto_optimal(energy, accuracy, df):
+            """
+            Determine if a point is Pareto optimal by checking if it is dominated by any other point.
+            
+            A point P1(energy1, accuracy1) dominates another point P2(energy2, accuracy2) if:
+            1. P1 has less or equal energy consumption (energy1 ≤ energy2)
+            2. P1 has higher or equal accuracy (accuracy1 ≥ accuracy2)
+            3. P1 is strictly better in at least one dimension 
+            (either energy1 < energy2 OR accuracy1 > accuracy2)
+            
+            In our case, we want to minimize energy and maximize accuracy.
+            """
+            return not any(
+                (df['Mean Energy (J)'] <= energy) & 
+                (df['Average Accuracy'] >= accuracy) & 
+                ((df['Mean Energy (J)'] < energy) | (df['Average Accuracy'] > accuracy))
+            )
+        
+        df['Pareto_Optimal'] = [
+            is_pareto_optimal(row['Mean Energy (J)'], row['Average Accuracy'], df)
+            for _, row in df.iterrows()
+        ]
+        
+        # Create plot
+        plt.figure(figsize=(7, 4.5))
+        
+        # Plot non-Pareto points
+        non_pareto = df[~df['Pareto_Optimal']]
+        sns.scatterplot(
+            data=non_pareto,
+            x='Mean Energy (J)',
+            y='Average Accuracy',
+            hue='Base Model',
+            style='Quantization',
+            s=100,
+            alpha=0.6,
+            markers=self.markers,
+            palette=self.colors,
+        )
+        
+        # Plot Pareto points with larger markers
+        pareto = df[df['Pareto_Optimal']]
+        sns.scatterplot(
+            data=pareto,
+            x='Mean Energy (J)',
+            y='Average Accuracy',
+            hue='Base Model',
+            style='Quantization',
+            s=200,
+            legend=False,
+            markers=self.markers,
+            palette=self.colors
+        )
+        
+        # Connect Pareto frontier with a line
+        pareto_sorted = pareto.sort_values('Mean Energy (J)')
+        plt.plot(pareto_sorted['Mean Energy (J)'], 
+                pareto_sorted['Average Accuracy'], 
+                'k--', 
+                alpha=0.5, 
+                label='Pareto Frontier')
+        
+        if log_scale:
+            plt.xscale('log')
+        plt.title('Energy-Average Accuracy Trade-off')
+        plt.xlabel('Mean Energy Consumption (Joules)')
+        plt.ylabel('Average Accuracy')
+        
+        # Add annotations for Pareto-optimal points and high performers
+        texts = []
+        for _, row in df.iterrows():
+            if row['Pareto_Optimal']:
+                model_name = "_".join(row['Model'].split('_')[:2])  # Show model family and size
+                texts.append(plt.text(
+                    row['Mean Energy (J)'], row['Average Accuracy'],
+                    f"{model_name} ({row['Quantization']})",
+                    fontsize=8,
+                    bbox=dict(facecolor='white', edgecolor='none', alpha=0.7)
+                ))
+
+        # Adjust text to avoid overlap
+        adjust_text(texts, arrowprops=dict(arrowstyle="->", color='black', lw=0.5))
+    
+        
+        # Add a text box with key statistics
+        stats_text = (
+            f"Number of models: {len(df)}\n"
+            f"Pareto-optimal models: {len(pareto)}\n"
+            f"Accuracy range: {df['Average Accuracy'].min():.2f}-{df['Average Accuracy'].max():.2f}\n"
+            f"Energy range: {df['Mean Energy (J)'].min():.2f}-{df['Mean Energy (J)'].max():.2f}J"
+        )
+        plt.text(0.02, 0.02, stats_text,
+                transform=plt.gca().transAxes,
+                bbox=dict(facecolor='white', edgecolor='none', alpha=0.7),
+                fontsize=8,
+                verticalalignment='bottom')
+
+        # Add legend outside the plot
+        plt.legend(loc='center left', bbox_to_anchor=(1, 0.5))
+        
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.savefig("output/energy_average_accuracy_tradeoff.pdf")
+        
+        # Print average accuracy and energy consumption for Pareto optimal models
+        pareto_avg_accuracy = pareto['Average Accuracy'].mean()
+        pareto_avg_energy = pareto['Mean Energy (J)'].mean()
+        print(f"Pareto-optimal models average accuracy: {pareto_avg_accuracy:.2f}")
+        print(f"Pareto-optimal models average energy consumption: {pareto_avg_energy:.2f} J")
+        
+        # Print accuracy and energy consumption for each Pareto optimal model
+        print("\nPareto-optimal models details:")
+        for _, row in pareto.iterrows():
+            print(f"Model: {row['Model']}, Average Accuracy: {row['Average Accuracy']:.2f}, Mean Energy (J): {row['Mean Energy (J)']:.2f}")
+        
+        return plt.gcf()
+
 def main():
     parser = argparse.ArgumentParser(description='Analyze LLM energy consumption data')
     parser.add_argument('files', nargs='+', help='CSV files to analyze')
@@ -1518,8 +1860,8 @@ def main():
         # 'energy_distribution_log': analyzer.plot_energy_distribution(args.dataset, log_scale=True),
         # 'energy_distribution_per_token': analyzer.plot_energy_distribution(args.dataset, per_token=True),
         # 'energy_distribution_per_token_log': analyzer.plot_energy_distribution(args.dataset, per_token=True, log_scale=True),
-        'energy_distribution_subplots': analyzer.plot_energy_distribution(args.dataset, subplots=True),
-        'energy_distribution_subplots_log': analyzer.plot_energy_distribution(args.dataset, log_scale=True, subplots=True),
+        # 'energy_distribution_subplots': analyzer.plot_energy_distribution(args.dataset, subplots=True),
+        # 'energy_distribution_subplots_log': analyzer.plot_energy_distribution(args.dataset, log_scale=True, subplots=True),
         # 'token_impact': analyzer.analyze_token_length_impact(args.dataset),
         # 'quantization_impact1': analyzer.analyze_quantization_impact(args.dataset),
         # 'quantization_impact2': analyzer.analyze_quantization_impact2(args.dataset, average=False),
@@ -1536,11 +1878,20 @@ def main():
         # 'model_size_vs_accuracy_bytes': analyzer.plot_model_size_vs_metrics(fit_regression=True, in_bytes=True, log_scale=False)[1],
         # 'model_size_vs_energy_bytes_log': analyzer.plot_model_size_vs_metrics(fit_regression=True, in_bytes=True, log_scale=True)[0],
         # 'model_size_vs_accuracy_bytes_log': analyzer.plot_model_size_vs_metrics(fit_regression=True, in_bytes=True, log_scale=True)[1],
-        # 'model_size_vs_metrics_grid': analyzer.plot_model_size_vs_metrics_grid(fit_regression=True, in_bytes=True, log_scale=True)[0],
-        # 'model_size_vs_metrics_grid_energy': analyzer.plot_model_size_vs_metrics_grid(fit_regression=True, in_bytes=True, log_scale=True)[1],
+        # 'model_size_vs_metrics_grid_log': analyzer.plot_model_size_vs_metrics_grid(fit_regression=True, in_bytes=True, log_scale=True)[0],
+        # 'model_size_vs_metrics_grid_energy_log': analyzer.plot_model_size_vs_metrics_grid(fit_regression=True, in_bytes=True, log_scale=True)[1],
+        # 'model_size_vs_metrics_grid': analyzer.plot_model_size_vs_metrics_grid(fit_regression=True, in_bytes=True, log_scale=False)[0],
+        # 'model_size_vs_metrics_grid_energy': analyzer.plot_model_size_vs_metrics_grid(fit_regression=True, in_bytes=True, log_scale=False)[1],
         # 'tokens_per_joule_distribution': analyzer.plot_tokens_per_joule_distribution(args.dataset, log_scale=False, subplots=False),
         # 'tokens_per_joule_distribution_log': analyzer.plot_tokens_per_joule_distribution(args.dataset, log_scale=True, subplots=False),
         # 'tokens_per_joule_distribution_log_subplots': analyzer.plot_tokens_per_joule_distribution(args.dataset, log_scale=True, subplots=True),
+        # 'response_length_distribution': analyzer.plot_response_length_distribution(args.dataset, log_scale=False, subplots=False),
+        # 'response_length_distribution_log': analyzer.plot_response_length_distribution(args.dataset, log_scale=True, subplots=False),
+        # 'response_length_distribution_log_subplots': analyzer.plot_response_length_distribution(args.dataset, log_scale=True, subplots=True),
+        # 'response_length_distribution_subplots': analyzer.plot_response_length_distribution(args.dataset, log_scale=False, subplots=True),
+        # 'response_length_energy_correlation': analyzer.analyze_response_length_energy_correlation(args.dataset),
+        'energy_average_accuracy_tradeoff': analyzer.plot_energy_average_accuracy_tradeoff(log_scale=False),
+        'energy_average_accuracy_tradeoff_log': analyzer.plot_energy_average_accuracy_tradeoff(log_scale=True),
     }
     
     for name, fig in plots.items():
@@ -1564,6 +1915,14 @@ def main():
     energy_per_token_latex_table = analyzer.generate_energy_per_token_latex_table()
     with open(Path(args.output_dir) / "energy_per_token_table.tex", "w") as f:
         f.write(energy_per_token_latex_table)
+
+    energy_per_response_latex_table = analyzer.generate_energy_per_response_latex_table()
+    with open(Path(args.output_dir) / "energy_per_response_table.tex", "w") as f:
+        f.write(energy_per_response_latex_table)
+
+    response_time_latex_table = analyzer.generate_response_length_latex_table()
+    with open(Path(args.output_dir) / "response_time_table.tex", "w") as f:
+        f.write(response_time_latex_table)
 
     # Print some basic statistics
     print("\nSummary Statistics:")
