@@ -44,6 +44,7 @@ class EnergyAnalyzer:
         self.raw_data: Dict[str, pd.DataFrame] = {}
         self.colors = utils.get_colors()
         self.markers = utils.get_markers()
+        self.dataset_markers = utils.get_markers_for_dataset()
         self._load_and_process_data()
 
     QUANTIZATION_ORDER = [
@@ -297,7 +298,7 @@ class EnergyAnalyzer:
         if subplots:
             datasets = df['Dataset'].unique()
             num_datasets = len(datasets)
-            fig, axes = plt.subplots(num_datasets, 1, figsize=(12, 6 * num_datasets), sharex=True)
+            fig, axes = plt.subplots(num_datasets, 1, figsize=(12, 3 * num_datasets), sharex=True)
             if num_datasets == 1:
                 axes = [axes]
 
@@ -317,6 +318,13 @@ class EnergyAnalyzer:
                 if log_scale:
                     ax.set_yscale('log')
             plt.tight_layout()
+
+            # Create legend
+            model_families = { "_".join(model.split("_")[:2]) for model in df['Model'].unique() }
+            handles = [plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=self.colors.get(family, 'gray'), markersize=10) for family in model_families]
+            labels = list(model_families)
+
+            fig.legend(handles, labels, title="Base Model", loc='lower center', ncol=len(labels), bbox_to_anchor=(0.5, -0.05))
         else:
             plt.figure(figsize=(12, 6))
             sns.boxplot(
@@ -537,7 +545,7 @@ class EnergyAnalyzer:
                         metric['Quantization'],
                         metric['Energy Saving (%)'],
                         label=base_model,
-                        marker=self.markers[metric['Dataset']]
+                        marker=self.dataset_markers[metric['Dataset']]
                     )
                 
                 # Plot accuracy loss
@@ -546,7 +554,7 @@ class EnergyAnalyzer:
                         metric['Quantization'],
                         metric['Accuracy Loss (pp)'],
                         label=base_model,
-                        marker=self.markers[metric['Dataset']]
+                        marker=self.dataset_markers[metric['Dataset']]
                     )
 
         # Sort all quantization levels according to our ordering
@@ -654,7 +662,10 @@ class EnergyAnalyzer:
         y = df['Mean Energy per Token (J)'].values
         from sklearn.linear_model import LinearRegression
         model = LinearRegression()
-        model.fit(np.log(x), np.log(y))
+        try:
+            model.fit(np.log(x), np.log(y))
+        except ValueError:
+            breakpoint()
         
         # Plot trend line
         x_trend = np.array([df['Size (B)'].min(), df['Size (B)'].max()])
@@ -705,16 +716,18 @@ class EnergyAnalyzer:
         """Generate a LaTeX table of average accuracy for each model on each dataset."""
         accuracy_data = []
         for (dataset_name, model_name), metrics in self.metrics.items():
+            model_family = "_".join(model_name.split('_')[:2])
             accuracy_data.append({
                 'Dataset': dataset_name,
                 'Model': model_name,
                 'Accuracy': metrics.accuracy,
-                'Quantization': metrics.quantization_level
+                'Quantization': metrics.quantization_level,
+                'Model Family': model_family
             })
         
         df = pd.DataFrame(accuracy_data)
         df['Quantization_Rank'] = df['Quantization'].apply(self._get_quantization_rank)
-        df = df.sort_values(by='Quantization_Rank')
+        df = df.sort_values(by=['Model Family', 'Quantization_Rank'])
         pivot_df = df.pivot(index='Model', columns='Dataset', values='Accuracy')
 
         # Add a column for the average accuracy across datasets for each model
@@ -722,6 +735,9 @@ class EnergyAnalyzer:
 
         # Add a row for the average accuracy across models for each dataset
         pivot_df.loc['Average Accuracy'] = pivot_df.mean(axis=0)
+
+        # Sort the pivot_df based on model family and quantization rank
+        pivot_df = pivot_df.sort_index(key=lambda x: x.map(lambda y: ("_".join(y.split('_')[:2]), self._get_quantization_rank("_".join(y.split('_')[3:])))))
 
         latex_table = pivot_df.to_latex(
             float_format="%.2f",
@@ -739,16 +755,18 @@ class EnergyAnalyzer:
         """Generate a LaTeX table of mean energy consumption for each model on each dataset."""
         energy_data = []
         for (dataset_name, model_name), metrics in self.metrics.items():
+            model_family = "_".join(model_name.split('_')[:2])
             energy_data.append({
                 'Dataset': dataset_name,
                 'Model': model_name,
                 'Mean Energy per Token (J/tok)': metrics.mean_energy_per_token,
-                'Quantization': metrics.quantization_level
+                'Quantization': metrics.quantization_level,
+                'Model Family': model_family
             })
         
         df = pd.DataFrame(energy_data)
         df['Quantization_Rank'] = df['Quantization'].apply(self._get_quantization_rank)
-        df = df.sort_values(by='Quantization_Rank')
+        df = df.sort_values(by=['Model Family', 'Quantization_Rank'])
         pivot_df = df.pivot(index='Model', columns='Dataset', values='Mean Energy per Token (J/tok)')
 
         # Add a column for the average energy consumption across datasets for each model
@@ -756,6 +774,9 @@ class EnergyAnalyzer:
 
         # Add a row for the average energy consumption across models for each dataset
         pivot_df.loc['Average Energy per Token (J/tok)'] = pivot_df.mean(axis=0)
+
+        # Sort the pivot_df based on model family and quantization rank
+        pivot_df = pivot_df.sort_index(key=lambda x: x.map(lambda y: ("_".join(y.split('_')[:2]), self._get_quantization_rank("_".join(y.split('_')[3:])))))
 
         latex_table = pivot_df.to_latex(
             float_format="%.2f",
@@ -1497,8 +1518,8 @@ def main():
         # 'energy_distribution_log': analyzer.plot_energy_distribution(args.dataset, log_scale=True),
         # 'energy_distribution_per_token': analyzer.plot_energy_distribution(args.dataset, per_token=True),
         # 'energy_distribution_per_token_log': analyzer.plot_energy_distribution(args.dataset, per_token=True, log_scale=True),
-        # 'energy_distribution_subplots': analyzer.plot_energy_distribution(args.dataset, subplots=True),
-        # 'energy_distribution_subplots_log': analyzer.plot_energy_distribution(args.dataset, log_scale=True, subplots=True),
+        'energy_distribution_subplots': analyzer.plot_energy_distribution(args.dataset, subplots=True),
+        'energy_distribution_subplots_log': analyzer.plot_energy_distribution(args.dataset, log_scale=True, subplots=True),
         # 'token_impact': analyzer.analyze_token_length_impact(args.dataset),
         # 'quantization_impact1': analyzer.analyze_quantization_impact(args.dataset),
         # 'quantization_impact2': analyzer.analyze_quantization_impact2(args.dataset, average=False),

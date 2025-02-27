@@ -35,11 +35,16 @@ def get_markers():
         "q3_K_L": "^",
         "q3_K_M": (4, 1, 45),
         "q3_K_S": "v",
-        "bigbenchhard": "x",
-        "commonsenseqa": "2",
-        "gsm8k": (8, 2, 0),
-        "humaneval": "+",
-        "truthfulqa": "1"
+    }
+
+def get_markers_for_dataset():
+    """Return a dictionary of dataset markers."""
+    return {
+        "bigbenchhard": (8, 0, 0),
+        "commonsenseqa": "*",
+        "gsm8k": (8, 1, 0),
+        "humaneval": "d",
+        "truthfulqa": "p"
     }
 
 def get_colors():
