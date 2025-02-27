@@ -151,7 +151,7 @@ class EnergyAnalyzer:
                     'Mean Energy (J)': metrics.mean_energy,
                     'Accuracy': metrics.accuracy,
                     'Quantization': metrics.quantization_level,
-                    'Model Family': model_family
+                    'Base Model': model_family
                 })
         
         df = pd.DataFrame(metrics_list)
@@ -189,7 +189,7 @@ class EnergyAnalyzer:
             data=non_pareto,
             x='Mean Energy (J)',
             y='Accuracy',
-            hue='Dataset' if dataset_name is None else 'Model Family',
+            hue='Dataset' if dataset_name is None else 'Base Model',
             style='Quantization',
             s=100,
             alpha=0.6,
@@ -203,7 +203,7 @@ class EnergyAnalyzer:
             data=pareto,
             x='Mean Energy (J)',
             y='Accuracy',
-            hue='Dataset' if dataset_name is None else 'Model Family',
+            hue='Dataset' if dataset_name is None else 'Base Model',
             style='Quantization',
             s=200,
             legend=False,
@@ -290,7 +290,7 @@ class EnergyAnalyzer:
                     'Model': model_name,
                     'Dataset': ds_name,
                     'Energy (J)': energy,
-                    'Model Family': model_family
+                    'Base Model': model_family
                 } for energy in df[column]])
         
         df = pd.DataFrame(data)
@@ -307,7 +307,7 @@ class EnergyAnalyzer:
                     data=df[df['Dataset'] == dataset],
                     x='Model',
                     y='Energy (J)',
-                    hue='Model Family',
+                    hue='Base Model',
                     ax=ax,
                     palette=self.colors
                 )
@@ -331,7 +331,7 @@ class EnergyAnalyzer:
                 data=df,
                 x='Model',
                 y='Energy (J)',
-                hue='Model Family',
+                hue='Base Model',
                 palette=self.colors
             )
             plt.xticks(rotation=45, ha='right')
@@ -634,7 +634,7 @@ class EnergyAnalyzer:
                         'Mean Energy per Token (J)': metrics.mean_energy_per_token,
                         'Std Energy per Token (J)': metrics.std_energy_per_token,
                         'Quantization': metrics.quantization_level,
-                        'Model Family': model_family
+                        'Base Model': model_family
                     })
         
         df = pd.DataFrame(metrics_list)
@@ -687,7 +687,7 @@ class EnergyAnalyzer:
                 row['Size (B)'] > df['Size (B)'].mean() + 2*df['Size (B)'].std()):
                 
                 plt.annotate(
-                    f"{row['Model Family']}\n({row['Quantization']})",
+                    f"{row['Base Model']}\n({row['Quantization']})",
                     (row['Size (B)'], row['Mean Energy per Token (J)']),
                     xytext=(5, 5),
                     textcoords='offset points',
@@ -722,12 +722,12 @@ class EnergyAnalyzer:
                 'Model': model_name,
                 'Accuracy': metrics.accuracy,
                 'Quantization': metrics.quantization_level,
-                'Model Family': model_family
+                'Base Model': model_family
             })
         
         df = pd.DataFrame(accuracy_data)
         df['Quantization_Rank'] = df['Quantization'].apply(self._get_quantization_rank)
-        df = df.sort_values(by=['Model Family', 'Quantization_Rank'])
+        df = df.sort_values(by=['Base Model', 'Quantization_Rank'])
         pivot_df = df.pivot(index='Model', columns='Dataset', values='Accuracy')
 
         # Add a column for the average accuracy across datasets for each model
@@ -761,12 +761,12 @@ class EnergyAnalyzer:
                 'Model': model_name,
                 'Mean Energy per Token (J/tok)': metrics.mean_energy_per_token,
                 'Quantization': metrics.quantization_level,
-                'Model Family': model_family
+                'Base Model': model_family
             })
         
         df = pd.DataFrame(energy_data)
         df['Quantization_Rank'] = df['Quantization'].apply(self._get_quantization_rank)
-        df = df.sort_values(by=['Model Family', 'Quantization_Rank'])
+        df = df.sort_values(by=['Base Model', 'Quantization_Rank'])
         pivot_df = df.pivot(index='Model', columns='Dataset', values='Mean Energy per Token (J/tok)')
 
         # Add a column for the average energy consumption across datasets for each model
@@ -796,13 +796,13 @@ class EnergyAnalyzer:
         for (dataset_name, model_name), metrics in self.metrics.items():
             model_family = "_".join(model_name.split('_')[:2])
             energy_data.append({
-                'Model Family': model_family,
+                'Base Model': model_family,
                 'Mean Energy per Token (J/tok)': metrics.mean_energy_per_token,
                 'Std Energy per Token (J/tok)': metrics.std_energy_per_token
             })
         
         df = pd.DataFrame(energy_data)
-        summary_df = df.groupby('Model Family').agg({
+        summary_df = df.groupby('Base Model').agg({
             'Mean Energy per Token (J/tok)': 'mean',
             'Std Energy per Token (J/tok)': 'mean'
         }).reset_index()
@@ -914,7 +914,7 @@ class EnergyAnalyzer:
         handles = [plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=self.colors.get(family, 'gray'), markersize=10) for family in model_families]
         labels = list(model_families)
 
-        fig.legend(handles, labels, title="Model Family", loc='lower center', ncol=len(labels), bbox_to_anchor=(0.5, -0.05))
+        fig.legend(handles, labels, title="Base Model", loc='lower center', ncol=len(labels), bbox_to_anchor=(0.5, -0.05))
 
         plt.tight_layout()
         return plt.gcf()
@@ -940,7 +940,7 @@ class EnergyAnalyzer:
                 'Model': model_name,
                 'Tokens per Second': tokens_per_second.mean(),
                 'Quantization': metrics.quantization_level,
-                'Model Family': "_".join(model_name.split("_")[:2])  # Extract model family
+                'Base Model': "_".join(model_name.split("_")[:2])  # Extract model family
             })
 
         
@@ -948,14 +948,14 @@ class EnergyAnalyzer:
 
         # Sort the models according to the QUANTIZATION_ORDER
         df['Quantization_Rank'] = df['Quantization'].apply(self._get_quantization_rank)
-        df = df.sort_values(by=['Model Family', 'Quantization_Rank'])
+        df = df.sort_values(by=['Base Model', 'Quantization_Rank'])
 
         pivot_df = df.pivot(index='Model', columns='Dataset', values='Tokens per Second')
         # Sort the rows according to the quantization rank
-        pivot_df["Model Family"] = pivot_df.index.map(lambda x: "_".join(x.split("_")[:2]))
+        pivot_df["Base Model"] = pivot_df.index.map(lambda x: "_".join(x.split("_")[:2]))
         pivot_df["Quantization_Rank"] = pivot_df.index.map(lambda x: self._get_quantization_rank(df.loc[df["Model"] == x, "Quantization"].values[0]))
-        pivot_df = pivot_df.sort_values(by=["Model Family", "Quantization_Rank"], ascending=[True, False])
-        pivot_df.drop(columns=["Model Family", "Quantization_Rank"], inplace=True)
+        pivot_df = pivot_df.sort_values(by=["Base Model", "Quantization_Rank"], ascending=[True, False])
+        pivot_df.drop(columns=["Base Model", "Quantization_Rank"], inplace=True)
 
 
 
@@ -981,7 +981,7 @@ class EnergyAnalyzer:
             # tick_label.set_color(color)
 
         # Add legend for model families
-        model_families = df['Model Family'].unique()
+        model_families = df['Base Model'].unique()
         family_handles = [plt.Line2D([0], [0], color=self.colors.get(family, 'gray'), lw=4) for family in model_families]
         family_labels = model_families
 
@@ -1037,7 +1037,7 @@ class EnergyAnalyzer:
                     'Mean Energy per Token (J)': metrics.mean_energy_per_token,
                     'Accuracy': metrics.accuracy,
                     'Quantization': metrics.quantization_level,
-                    'Model Family': model_family
+                    'Base Model': model_family
                 })
         
         df = pd.DataFrame(metrics_list)
@@ -1055,7 +1055,7 @@ class EnergyAnalyzer:
                 data=dataset_df,
                 x='Size',
                 y='Accuracy',
-                hue='Model Family',
+                hue='Base Model',
                 style='Quantization',
                 s=100,
                 ax=ax,
@@ -1155,12 +1155,12 @@ class EnergyAnalyzer:
                     'Mean Energy per Token (J)': metrics.mean_energy_per_token,
                     'Accuracy': metrics.accuracy,
                     'Quantization': metrics.quantization_level,
-                    'Model Family': model_family
+                    'Base Model': model_family
                 })
 
         df = pd.DataFrame(metrics_list)
         datasets = df['Dataset'].unique()
-        model_families = df['Model Family'].unique()
+        model_families = df['Base Model'].unique()
         num_datasets = len(datasets)
         num_model_families = len(model_families)
 
@@ -1173,7 +1173,7 @@ class EnergyAnalyzer:
         for i, dataset in enumerate(datasets):
             for j, model_family in enumerate(model_families):
                 ax = axes[i][j]
-                dataset_df = df[(df['Dataset'] == dataset) & (df['Model Family'] == model_family)]
+                dataset_df = df[(df['Dataset'] == dataset) & (df['Base Model'] == model_family)]
                 sns.scatterplot(
                     data=dataset_df,
                     x='Size',
@@ -1231,7 +1231,7 @@ class EnergyAnalyzer:
         for i, dataset in enumerate(datasets):
             for j, model_family in enumerate(model_families):
                 ax = axes[i][j]
-                dataset_df = df[(df['Dataset'] == dataset) & (df['Model Family'] == model_family)]
+                dataset_df = df[(df['Dataset'] == dataset) & (df['Base Model'] == model_family)]
                 sns.scatterplot(
                     data=dataset_df,
                     x='Size',
@@ -1294,7 +1294,7 @@ class EnergyAnalyzer:
                     'Mean Energy (J)': metrics.mean_energy,
                     'Accuracy': metrics.accuracy,
                     'Quantization': metrics.quantization_level,
-                    'Model Family': model_family
+                    'Base Model': model_family
                 })
         
         df = pd.DataFrame(metrics_list)
@@ -1386,7 +1386,7 @@ class EnergyAnalyzer:
                     'Model': model_name,
                     'Dataset': ds_name,
                     'Tokens per Joule': tokens_per_joule,
-                    'Model Family': model_family
+                    'Base Model': model_family
                 } for tokens_per_joule in df[column]])
         
         df = pd.DataFrame(data)
@@ -1403,7 +1403,7 @@ class EnergyAnalyzer:
                     data=df[df['Dataset'] == dataset],
                     x='Model',
                     y='Tokens per Joule',
-                    hue='Model Family',
+                    hue='Base Model',
                     ax=ax,
                     palette=self.colors
                 )
@@ -1424,7 +1424,7 @@ class EnergyAnalyzer:
                 data=df,
                 x='Model',
                 y='Tokens per Joule',
-                hue='Model Family',
+                hue='Base Model',
                 palette=self.colors
             )
             plt.xticks(rotation=45, ha='right')
