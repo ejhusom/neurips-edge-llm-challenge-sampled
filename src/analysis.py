@@ -1933,7 +1933,48 @@ class EnergyAnalyzer:
             for _, row in avg_latency_per_model_dataset.iterrows():
                 f.write(f"{row['Model']} on {row['Dataset']}: {row['Average Latency (s)']:.2f} s\n")
 
-        
+        # Create LaTeX table for average inference latency by model family and quantization level
+        model_families = df['Base Model'].unique()
+        quantization_levels = ['fp16', 'q8_0', 'q4 variants (avg)', 'q3 variants (avg)']
+        latency_table = pd.DataFrame(index=quantization_levels, columns=model_families)
+
+        for model_family in model_families:
+            for quant_level in quantization_levels:
+                if quant_level == 'q4 variants (avg)':
+                    quant_levels = ['q4_1', 'q4_K_M', 'q4_0', 'q4_K_S']
+                elif quant_level == 'q3 variants (avg)':
+                    quant_levels = ['q3_K_L', 'q3_K_M', 'q3_K_S']
+                else:
+                    quant_levels = [quant_level]
+
+                latency_values = df[(df['Base Model'] == model_family) & (df['Model'].str.contains('|'.join(quant_levels)))]['Latency (s)']
+                if not latency_values.empty:
+                    latency_table.loc[quant_level, model_family] = latency_values.mean()
+                else:
+                    latency_table.loc[quant_level, model_family] = 'N/A'
+
+        # Replace non-numeric values with NaN
+        latency_table_numeric = latency_table.apply(pd.to_numeric, errors='coerce')
+        # Compute the row-wise mean, ignoring NaN values
+        latency_table['Average'] = latency_table_numeric.mean(axis=1, skipna=True)
+        # Compute the column-wise mean, ignoring NaN values
+        latency_table.loc['Average'] = latency_table_numeric.mean(axis=0, skipna=True)
+        # Compute the overall average latency
+
+        latex_table = latency_table.to_latex(
+            float_format="%.2f",
+            na_rep="N/A",
+            caption="Average Inference Latency (seconds) by Model Family and Quantization Level",
+            label="tab:avg_latency"
+        )
+
+        with open("output/average_inference_latency_table.tex", "w") as f:
+            f.write(latex_table)
+
+        # Sort models based on base model and quantization rank
+        df['Quantization_Rank'] = df['Model'].apply(lambda x: self._get_quantization_rank(self._extract_quantization_level(x)))
+        df = df.sort_values(by=['Base Model', 'Quantization_Rank'])
+
         # Plot the results
         datasets = df['Dataset'].unique()
         num_datasets = len(datasets)
@@ -1961,8 +2002,8 @@ class EnergyAnalyzer:
         model_families = df['Base Model'].unique()
         handles = [plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=self.colors.get(family, 'gray'), markersize=10) for family in model_families]
         labels = list(model_families)
-
         fig.legend(handles, labels, title="Base Model", loc='lower center', ncol=len(labels), bbox_to_anchor=(0.5, -0.05))
+
 
         plt.tight_layout()
         plt.savefig("output/inference_latency_distribution.pdf")
@@ -2002,7 +2043,7 @@ def main():
         # 'quantization_impact2_avg': analyzer.analyze_quantization_impact2(args.dataset, average=True),
         # 'quantization_impact3': analyzer.plot_quantization_impact(args.dataset),
         # 'size_impact': analyzer.plot_energy_per_token_vs_size(args.dataset),
-        'tokens_per_second': analyzer.plot_tokens_per_second(),
+        # 'tokens_per_second': analyzer.plot_tokens_per_second(),
         # 'tokens_per_second_total_duration': analyzer.plot_tokens_per_second(use_total_duration=True),
         # 'accuracy_comparison': analyzer.plot_accuracy_subplots_vertical_bars(),
         # 'average_accuracy': analyzer.plot_average_accuracy(),
