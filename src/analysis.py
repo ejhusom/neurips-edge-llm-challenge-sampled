@@ -261,17 +261,21 @@ class EnergyAnalyzer:
         plt.tight_layout()
         plt.savefig("output/energy_accuracy_tradeoff.pdf")
         
-        # Print average accuracy and energy consumption for Pareto optimal models
+        # Save average accuracy and energy consumption for Pareto optimal models to a file
         pareto_avg_accuracy = pareto['Accuracy'].mean()
         pareto_avg_energy = pareto['Mean Energy (J)'].mean()
-        print(f"Pareto-optimal models average accuracy: {pareto_avg_accuracy:.2f}")
-        print(f"Pareto-optimal models average energy consumption: {pareto_avg_energy:.2f} J")
+        dataset_name_str = dataset_name if dataset_name else 'all_datasets'
         
-        # Print accuracy and energy consumption for each Pareto optimal model
-        print("\nPareto-optimal models details:")
-        for _, row in pareto.iterrows():
-            print(f"Model: {row['Model']}, Accuracy: {row['Accuracy']:.2f}, Mean Energy (J): {row['Mean Energy (J)']:.2f}")
-        
+        with open(f"output/pareto_optimal_results_{dataset_name_str}.txt", "w") as f:
+            f.write(f"Results for dataset {dataset_name_str}:\n")
+            f.write(f"Pareto-optimal models average accuracy: {pareto_avg_accuracy:.2f}\n")
+            f.write(f"Pareto-optimal models average energy consumption: {pareto_avg_energy:.2f} J\n")
+            
+            # Save accuracy and energy consumption for each Pareto optimal model
+            f.write("\nPareto-optimal models details:\n")
+            for _, row in pareto.iterrows():
+                f.write(f"Model: {row['Model']}, Accuracy: {row['Accuracy']:.2f}, Mean Energy (J): {row['Mean Energy (J)']:.2f}\n")
+
         return plt.gcf()
     
     def plot_energy_distribution(self, dataset_name: str = None, per_token=False, log_scale=False, subplots=False):
@@ -1826,16 +1830,20 @@ class EnergyAnalyzer:
         plt.tight_layout()
         plt.savefig("output/energy_average_accuracy_tradeoff.pdf")
         
-        # Print average accuracy and energy consumption for Pareto optimal models
+        # Write average accuracy and energy consumption for Pareto optimal models to a file
         pareto_avg_accuracy = pareto['Average Accuracy'].mean()
         pareto_avg_energy = pareto['Mean Energy (J)'].mean()
-        print(f"Pareto-optimal models average accuracy: {pareto_avg_accuracy:.2f}")
-        print(f"Pareto-optimal models average energy consumption: {pareto_avg_energy:.2f} J")
+        dataset_name_str = dataset_name if dataset_name else 'all_datasets'
         
-        # Print accuracy and energy consumption for each Pareto optimal model
-        print("\nPareto-optimal models details:")
-        for _, row in pareto.iterrows():
-            print(f"Model: {row['Model']}, Average Accuracy: {row['Average Accuracy']:.2f}, Mean Energy (J): {row['Mean Energy (J)']:.2f}")
+        with open(f"output/pareto_optimal_results_average_{dataset_name_str}.txt", "w") as f:
+            f.write(f"Results for dataset {dataset_name_str}:\n")
+            f.write(f"Pareto-optimal models average accuracy: {pareto_avg_accuracy:.2f}\n")
+            f.write(f"Pareto-optimal models average energy consumption: {pareto_avg_energy:.2f} J\n")
+            
+            # Write accuracy and energy consumption for each Pareto optimal model
+            f.write("\nPareto-optimal models details:\n")
+            for _, row in pareto.iterrows():
+                f.write(f"Model: {row['Model']}, Average Accuracy: {row['Average Accuracy']:.2f}, Mean Energy (J): {row['Mean Energy (J)']:.2f}\n")
         
         return plt.gcf()
 
@@ -1854,7 +1862,7 @@ def main():
     
     # Generate and save plots
     plots = {
-        # 'energy_accuracy': analyzer.plot_energy_accuracy_tradeoff(args.dataset),
+        'energy_accuracy': analyzer.plot_energy_accuracy_tradeoff(args.dataset),
         # 'energy_accuracy_log': analyzer.plot_energy_accuracy_tradeoff(args.dataset, log_scale=True),
         # 'energy_distribution': analyzer.plot_energy_distribution(args.dataset),
         # 'energy_distribution_log': analyzer.plot_energy_distribution(args.dataset, log_scale=True),
@@ -1890,8 +1898,8 @@ def main():
         # 'response_length_distribution_log_subplots': analyzer.plot_response_length_distribution(args.dataset, log_scale=True, subplots=True),
         # 'response_length_distribution_subplots': analyzer.plot_response_length_distribution(args.dataset, log_scale=False, subplots=True),
         # 'response_length_energy_correlation': analyzer.analyze_response_length_energy_correlation(args.dataset),
-        'energy_average_accuracy_tradeoff': analyzer.plot_energy_average_accuracy_tradeoff(log_scale=False),
-        'energy_average_accuracy_tradeoff_log': analyzer.plot_energy_average_accuracy_tradeoff(log_scale=True),
+        # 'energy_average_accuracy_tradeoff': analyzer.plot_energy_average_accuracy_tradeoff(log_scale=False),
+        # 'energy_average_accuracy_tradeoff_log': analyzer.plot_energy_average_accuracy_tradeoff(log_scale=True),
     }
     
     for name, fig in plots.items():
