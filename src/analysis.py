@@ -1762,7 +1762,7 @@ class EnergyAnalyzer:
         
         return plt.gcf()
 
-    def plot_energy_average_accuracy_tradeoff(self, log_scale=False):
+    def plot_energy_average_accuracy_tradeoff(self, log_scale=False, dataset_name: str = None):
         """Plot energy consumption vs average accuracy across all datasets for all models"""
         metrics_list = []
         for (ds_name, model_name), metrics in self.metrics.items():
@@ -2054,6 +2054,59 @@ class EnergyAnalyzer:
         
         return plt.gcf()
 
+    def generate_energy_per_response_latex_table_by_model_family(self) -> str:
+        """Generate a LaTeX table of average energy consumption per response by model family and quantization level."""
+        energy_data = []
+        for (dataset_name, model_name), metrics in self.metrics.items():
+            base_model = "_".join(model_name.split("_")[:2])  # Extract base model name
+            energy_data.append({
+                'Dataset': dataset_name,
+                'Model': model_name,
+                'Base Model': base_model,
+                'Mean Energy per Response (J)': metrics.mean_energy
+            })
+        
+        df = pd.DataFrame(energy_data)
+        
+        # Create LaTeX table for average energy consumption by model family and quantization level
+        model_families = df['Base Model'].unique()
+        quantization_levels = ['fp16', 'q8_0', 'q4 variants (avg)', 'q3 variants (avg)']
+        energy_table = pd.DataFrame(index=quantization_levels, columns=model_families)
+
+        for model_family in model_families:
+            for quant_level in quantization_levels:
+                if quant_level == 'q4 variants (avg)':
+                    quant_levels = ['q4_1', 'q4_K_M', 'q4_0', 'q4_K_S']
+                elif quant_level == 'q3 variants (avg)':
+                    quant_levels = ['q3_K_L', 'q3_K_M', 'q3_K_S']
+                else:
+                    quant_levels = [quant_level]
+
+                energy_values = df[(df['Base Model'] == model_family) & (df['Model'].str.contains('|'.join(quant_levels)))]['Mean Energy per Response (J)']
+                if not energy_values.empty:
+                    energy_table.loc[quant_level, model_family] = energy_values.mean()
+                else:
+                    energy_table.loc[quant_level, model_family] = 'N/A'
+
+        # Replace non-numeric values with NaN
+        energy_table_numeric = energy_table.apply(pd.to_numeric, errors='coerce')
+        # Compute the row-wise mean, ignoring NaN values
+        energy_table['Average'] = energy_table_numeric.mean(axis=1, skipna=True)
+        # Compute the column-wise mean, ignoring NaN values
+        energy_table.loc['Average'] = energy_table_numeric.mean(axis=0, skipna=True)
+
+        latex_table = energy_table.to_latex(
+            float_format="%.2f",
+            na_rep="N/A",
+            caption="Average Energy Consumption per Response (Joules) by Model Family and Quantization Level",
+            label="tab:avg_energy_per_response"
+        )
+
+        # Make sure to escape any underscores
+        latex_table = latex_table.replace("_", r"\_")
+
+        return latex_table
+
 def main():
     parser = argparse.ArgumentParser(description='Analyze LLM energy consumption data')
     parser.add_argument('files', nargs='+', help='CSV files to analyze')
@@ -2069,44 +2122,44 @@ def main():
     
     # Generate and save plots
     plots = {
-        # 'energy_accuracy': analyzer.plot_energy_accuracy_tradeoff(args.dataset),
-        # 'energy_accuracy_log': analyzer.plot_energy_accuracy_tradeoff(args.dataset, log_scale=True),
-        # 'energy_distribution': analyzer.plot_energy_distribution(args.dataset),
-        # 'energy_distribution_log': analyzer.plot_energy_distribution(args.dataset, log_scale=True),
-        # 'energy_distribution_per_token': analyzer.plot_energy_distribution(args.dataset, per_token=True),
-        # 'energy_distribution_per_token_log': analyzer.plot_energy_distribution(args.dataset, per_token=True, log_scale=True),
-        # 'energy_distribution_subplots': analyzer.plot_energy_distribution(args.dataset, subplots=True),
-        # 'energy_distribution_subplots_log': analyzer.plot_energy_distribution(args.dataset, log_scale=True, subplots=True),
-        # 'token_impact': analyzer.analyze_token_length_impact(args.dataset),
-        # 'quantization_impact1': analyzer.analyze_quantization_impact(args.dataset),
-        # 'quantization_impact2': analyzer.analyze_quantization_impact2(args.dataset, average=False),
-        # 'quantization_impact2_avg': analyzer.analyze_quantization_impact2(args.dataset, average=True),
-        # 'quantization_impact3': analyzer.plot_quantization_impact(args.dataset),
-        # 'size_impact': analyzer.plot_energy_per_token_vs_size(args.dataset),
-        # 'tokens_per_second': analyzer.plot_tokens_per_second(),
-        # 'tokens_per_second_total_duration': analyzer.plot_tokens_per_second(use_total_duration=True),
-        # 'accuracy_comparison': analyzer.plot_accuracy_subplots_vertical_bars(),
-        # 'average_accuracy': analyzer.plot_average_accuracy(),
-        # 'model_size_vs_energy': analyzer.plot_model_size_vs_metrics(fit_regression=True, in_bytes=False, log_scale=True)[0],
-        # 'model_size_vs_accuracy': analyzer.plot_model_size_vs_metrics(fit_regression=True, in_bytes=False, log_scale=True)[1],
-        # 'model_size_vs_energy_bytes': analyzer.plot_model_size_vs_metrics(fit_regression=True, in_bytes=True, log_scale=False)[0],
-        # 'model_size_vs_accuracy_bytes': analyzer.plot_model_size_vs_metrics(fit_regression=True, in_bytes=True, log_scale=False)[1],
-        # 'model_size_vs_energy_bytes_log': analyzer.plot_model_size_vs_metrics(fit_regression=True, in_bytes=True, log_scale=True)[0],
-        # 'model_size_vs_accuracy_bytes_log': analyzer.plot_model_size_vs_metrics(fit_regression=True, in_bytes=True, log_scale=True)[1],
-        # 'model_size_vs_metrics_grid_log': analyzer.plot_model_size_vs_metrics_grid(fit_regression=True, in_bytes=True, log_scale=True)[0],
-        # 'model_size_vs_metrics_grid_energy_log': analyzer.plot_model_size_vs_metrics_grid(fit_regression=True, in_bytes=True, log_scale=True)[1],
-        # 'model_size_vs_metrics_grid': analyzer.plot_model_size_vs_metrics_grid(fit_regression=True, in_bytes=True, log_scale=False)[0],
-        # 'model_size_vs_metrics_grid_energy': analyzer.plot_model_size_vs_metrics_grid(fit_regression=True, in_bytes=True, log_scale=False)[1],
-        # 'tokens_per_joule_distribution': analyzer.plot_tokens_per_joule_distribution(args.dataset, log_scale=False, subplots=False),
-        # 'tokens_per_joule_distribution_log': analyzer.plot_tokens_per_joule_distribution(args.dataset, log_scale=True, subplots=False),
-        # 'tokens_per_joule_distribution_log_subplots': analyzer.plot_tokens_per_joule_distribution(args.dataset, log_scale=True, subplots=True),
-        # 'response_length_distribution': analyzer.plot_response_length_distribution(args.dataset, log_scale=False, subplots=False),
-        # 'response_length_distribution_log': analyzer.plot_response_length_distribution(args.dataset, log_scale=True, subplots=False),
-        # 'response_length_distribution_log_subplots': analyzer.plot_response_length_distribution(args.dataset, log_scale=True, subplots=True),
-        # 'response_length_distribution_subplots': analyzer.plot_response_length_distribution(args.dataset, log_scale=False, subplots=True),
-        # 'response_length_energy_correlation': analyzer.analyze_response_length_energy_correlation(args.dataset),
-        # 'energy_average_accuracy_tradeoff': analyzer.plot_energy_average_accuracy_tradeoff(log_scale=False),
-        # 'energy_average_accuracy_tradeoff_log': analyzer.plot_energy_average_accuracy_tradeoff(log_scale=True),
+        'energy_accuracy': analyzer.plot_energy_accuracy_tradeoff(args.dataset),
+        'energy_accuracy_log': analyzer.plot_energy_accuracy_tradeoff(args.dataset, log_scale=True),
+        'energy_distribution': analyzer.plot_energy_distribution(args.dataset),
+        'energy_distribution_log': analyzer.plot_energy_distribution(args.dataset, log_scale=True),
+        'energy_distribution_per_token': analyzer.plot_energy_distribution(args.dataset, per_token=True),
+        'energy_distribution_per_token_log': analyzer.plot_energy_distribution(args.dataset, per_token=True, log_scale=True),
+        'energy_distribution_subplots': analyzer.plot_energy_distribution(args.dataset, subplots=True),
+        'energy_distribution_subplots_log': analyzer.plot_energy_distribution(args.dataset, log_scale=True, subplots=True),
+        'token_impact': analyzer.analyze_token_length_impact(args.dataset),
+        'quantization_impact1': analyzer.analyze_quantization_impact(args.dataset),
+        'quantization_impact2': analyzer.analyze_quantization_impact2(args.dataset, average=False),
+        'quantization_impact2_avg': analyzer.analyze_quantization_impact2(args.dataset, average=True),
+        'quantization_impact3': analyzer.plot_quantization_impact(args.dataset),
+        'size_impact': analyzer.plot_energy_per_token_vs_size(args.dataset),
+        'tokens_per_second': analyzer.plot_tokens_per_second(),
+        'tokens_per_second_total_duration': analyzer.plot_tokens_per_second(use_total_duration=True),
+        'accuracy_comparison': analyzer.plot_accuracy_subplots_vertical_bars(),
+        'average_accuracy': analyzer.plot_average_accuracy(),
+        'model_size_vs_energy': analyzer.plot_model_size_vs_metrics(fit_regression=True, in_bytes=False, log_scale=True)[0],
+        'model_size_vs_accuracy': analyzer.plot_model_size_vs_metrics(fit_regression=True, in_bytes=False, log_scale=True)[1],
+        'model_size_vs_energy_bytes': analyzer.plot_model_size_vs_metrics(fit_regression=True, in_bytes=True, log_scale=False)[0],
+        'model_size_vs_accuracy_bytes': analyzer.plot_model_size_vs_metrics(fit_regression=True, in_bytes=True, log_scale=False)[1],
+        'model_size_vs_energy_bytes_log': analyzer.plot_model_size_vs_metrics(fit_regression=True, in_bytes=True, log_scale=True)[0],
+        'model_size_vs_accuracy_bytes_log': analyzer.plot_model_size_vs_metrics(fit_regression=True, in_bytes=True, log_scale=True)[1],
+        'model_size_vs_metrics_grid_log': analyzer.plot_model_size_vs_metrics_grid(fit_regression=True, in_bytes=True, log_scale=True)[0],
+        'model_size_vs_metrics_grid_energy_log': analyzer.plot_model_size_vs_metrics_grid(fit_regression=True, in_bytes=True, log_scale=True)[1],
+        'model_size_vs_metrics_grid': analyzer.plot_model_size_vs_metrics_grid(fit_regression=True, in_bytes=True, log_scale=False)[0],
+        'model_size_vs_metrics_grid_energy': analyzer.plot_model_size_vs_metrics_grid(fit_regression=True, in_bytes=True, log_scale=False)[1],
+        'tokens_per_joule_distribution': analyzer.plot_tokens_per_joule_distribution(args.dataset, log_scale=False, subplots=False),
+        'tokens_per_joule_distribution_log': analyzer.plot_tokens_per_joule_distribution(args.dataset, log_scale=True, subplots=False),
+        'tokens_per_joule_distribution_log_subplots': analyzer.plot_tokens_per_joule_distribution(args.dataset, log_scale=True, subplots=True),
+        'response_length_distribution': analyzer.plot_response_length_distribution(args.dataset, log_scale=False, subplots=False),
+        'response_length_distribution_log': analyzer.plot_response_length_distribution(args.dataset, log_scale=True, subplots=False),
+        'response_length_distribution_log_subplots': analyzer.plot_response_length_distribution(args.dataset, log_scale=True, subplots=True),
+        'response_length_distribution_subplots': analyzer.plot_response_length_distribution(args.dataset, log_scale=False, subplots=True),
+        'response_length_energy_correlation': analyzer.analyze_response_length_energy_correlation(args.dataset),
+        'energy_average_accuracy_tradeoff': analyzer.plot_energy_average_accuracy_tradeoff(log_scale=False),
+        'energy_average_accuracy_tradeoff_log': analyzer.plot_energy_average_accuracy_tradeoff(log_scale=True),
         'inference_latency': analyzer.analyze_inference_latency(),
     }
     
@@ -2143,6 +2196,10 @@ def main():
     energy_per_response_latex_table_by_dataset = analyzer.generate_energy_per_response_latex_table_by_dataset()
     with open(Path(args.output_dir) / "energy_per_response_table_by_dataset.tex", "w") as f:
         f.write(energy_per_response_latex_table_by_dataset)
+
+    energy_per_response_latex_table_by_model_family = analyzer.generate_energy_per_response_latex_table_by_model_family()
+    with open(Path(args.output_dir) / "energy_per_response_table_by_model_family.tex", "w") as f:
+        f.write(energy_per_response_latex_table_by_model_family)
 
     # Print some basic statistics
     print("\nSummary Statistics:")

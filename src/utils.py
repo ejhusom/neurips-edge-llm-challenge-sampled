@@ -2,14 +2,20 @@
 # -*- coding: utf-8 -*-
 import matplotlib.pyplot as plt
 import json
+import os
 
 def get_dataset_name(file_name):
     parts = file_name.split('_')
     return parts[0].lower()
 
 def get_model_name(file_name):
-    parts = file_name.split(".")[0].split('_')
-    return "_".join(parts[1:])
+    # parts = ".".join(file_name.split(".")[:-1]).split('_')
+    # result = "_".join(parts[1:])
+    # Remove extension ".json" or ".csv", if present
+    basename = file_name.removesuffix(".csv").removesuffix(".json")
+    parts = basename.split("_")
+    result = "_".join(parts[1:])
+    return result
 
 def get_color_for_model(model_name):
 
@@ -20,6 +26,10 @@ def get_color_for_model(model_name):
         "qwen25_15b": "blue",
         "gemma2_2b": "darkblue",
         "llama32_1b": "turquoise",
+        "qwen2.5_0.5b": "skyblue",
+        "qwen2.5_1.5b": "blue",
+        "gemma2_2b": "darkblue",
+        "llama3.2_1b": "turquoise",
     }
     return colors.get(model_base_name, "gray")
 
@@ -99,11 +109,60 @@ def get_colors():
         "llama32_1b_instruct_q3_K_L": "#117733",
         "llama32_1b_instruct_q3_K_M": "#117733",
         "llama32_1b_instruct_q3_K_S": "#117733",
+        #########################
+        "qwen2.5_0.5b": "#CC6677",
+        "qwen2.5_0.5b_instruct": "#CC6677",
+        "qwen2.5_0.5b_instruct_fp16": "#CC6677",
+        "qwen2.5_0.5b_instruct_q8_0": "#CC6677",
+        "qwen2.5_0.5b_instruct_q4_1": "#CC6677",
+        "qwen2.5_0.5b_instruct_q4_K_M": "#CC6677",
+        "qwen2.5_0.5b_instruct_q4_0": "#CC6677",
+        "qwen2.5_0.5b_instruct_q4_K_S": "#CC6677",
+        "qwen2.5_0.5b_instruct_q3_K_L": "#CC6677",
+        "qwen2.5_0.5b_instruct_q3_K_M": "#CC6677",
+        "qwen2.5_0.5b_instruct_q3_K_S": "#CC6677",
+        "qwen2.5_1.5b": "#332288",
+        "qwen2.5_1.5b_instruct": "#332288",
+        "qwen2.5_1.5b_instruct_fp16": "#332288",
+        "qwen2.5_1.5b_instruct_q8_0": "#332288",
+        "qwen2.5_1.5b_instruct_q4_1": "#332288",
+        "qwen2.5_1.5b_instruct_q4_K_M": "#332288",
+        "qwen2.5_1.5b_instruct_q4_0": "#332288",
+        "qwen2.5_1.5b_instruct_q4_K_S": "#332288",
+        "qwen2.5_1.5b_instruct_q3_K_L": "#332288",
+        "qwen2.5_1.5b_instruct_q3_K_M": "#332288",
+        "qwen2.5_1.5b_instruct_q3_K_S": "#332288",
+        "gemma2_2b": "#DDCC77",
+        "gemma2_2b_instruct": "#DDCC77",
+        "gemma2_2b_instruct_fp16": "#DDCC77",
+        "gemma2_2b_instruct_q8_0": "#DDCC77",
+        "gemma2_2b_instruct_q4_1": "#DDCC77",
+        "gemma2_2b_instruct_q4_K_M": "#DDCC77",
+        "gemma2_2b_instruct_q4_0": "#DDCC77",
+        "gemma2_2b_instruct_q4_K_S": "#DDCC77",
+        "gemma2_2b_instruct_q3_K_L": "#DDCC77",
+        "gemma2_2b_instruct_q3_K_M": "#DDCC77",
+        "gemma2_2b_instruct_q3_K_S": "#DDCC77",
+        "llama3.2_1b": "#117733",
+        "llama3.2_1b_instruct": "#117733",
+        "llama3.2_1b_instruct_fp16": "#117733",
+        "llama3.2_1b_instruct_q8_0": "#117733",
+        "llama3.2_1b_instruct_q4_1": "#117733",
+        "llama3.2_1b_instruct_q4_K_M": "#117733",
+        "llama3.2_1b_instruct_q4_0": "#117733",
+        "llama3.2_1b_instruct_q4_K_S": "#117733",
+        "llama3.2_1b_instruct_q3_K_L": "#117733",
+        "llama3.2_1b_instruct_q3_K_M": "#117733",
+        "llama3.2_1b_instruct_q3_K_S": "#117733",
     }
 
 def get_model_colors():
     """Return a dictionary of model colors."""
     return {
+        "qwen2.5_0.5b": "skyblue",
+        "qwen2.5_1.5b": "blue",
+        "gemma2_2b": "orange",
+        "llama3.2_1b": "green",
         "qwen25_05b": "skyblue",
         "qwen25_15b": "blue",
         "gemma2_2b": "orange",
@@ -130,6 +189,10 @@ def plot_legend(ax, location="best"):
         "qwen25_15b": "blue",
         "gemma2_2b": "orange",
         "llama32_1b": "green",
+        "qwen2.5_0.5b": "skyblue",
+        "qwen2.5_1.5b": "blue",
+        "gemma2_2b": "orange",
+        "llama3.2_1b": "green",
     }
 
     handles = [plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=color, markersize=10) for color in colors.values()]
