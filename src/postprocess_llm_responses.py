@@ -44,7 +44,7 @@ def read_llm_response_file(filepath):
 
     if dataset.lower() == "commonsenseqa":
         model_accuracies, evaluation_df = evaluate_commonsenseQA.main(filepath)
-    elif dataset.lower() == "bigbenchhard":
+    elif dataset.lower() == "bigbenchhard" or dataset.lower() == "bbh" or dataset.lower() == "big-bench-hard":
         model_accuracies, evaluation_df = evaluate_bbh.main(filepath)
     elif dataset.lower() == "gsm8k":
         model_accuracies, evaluation_df = evaluate_gsm8k.main(filepath)
