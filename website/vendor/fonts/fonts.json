@@ -1,0 +1,37 @@
+[
+ {
+  "family": "IBM Plex Mono",
+  "style": "normal",
+  "weight": "400",
+  "file": "IBMPlexMono-normal-400.woff2",
+  "source": "https://fonts.gstatic.com/s/ibmplexmono/v20/-F63fjptAgt5VM-kVkqdyU8n1i8q131nj-o.woff2"
+ },
+ {
+  "family": "IBM Plex Mono",
+  "style": "normal",
+  "weight": "500",
+  "file": "IBMPlexMono-normal-500.woff2",
+  "source": "https://fonts.gstatic.com/s/ibmplexmono/v20/-F6qfjptAgt5VM-kVkqdyU8n3twJwlBFgsAXHNk.woff2"
+ },
+ {
+  "family": "Newsreader",
+  "style": "italic",
+  "weight": "400",
+  "file": "Newsreader-italic-400.woff2",
+  "source": "https://fonts.gstatic.com/s/newsreader/v26/cY9XfjOCX1hbuyalUrK439vogqCz_goCYw7oRd6JFYYzbARA_n8.woff2"
+ },
+ {
+  "family": "Newsreader",
+  "style": "normal",
+  "weight": "400 600",
+  "file": "Newsreader-normal-400-600.woff2",
+  "source": "https://fonts.gstatic.com/s/newsreader/v26/cY9AfjOCX1hbuyalUrK4397yjIJFJpc.woff2"
+ },
+ {
+  "family": "Schibsted Grotesk",
+  "style": "normal",
+  "weight": "400 800",
+  "file": "SchibstedGrotesk-normal-400-800.woff2",
+  "source": "https://fonts.gstatic.com/s/schibstedgrotesk/v7/Jqz55SSPQuCQF3t8uOwiUL-taUTtap9GayojdSFO.woff2"
+ }
+]
