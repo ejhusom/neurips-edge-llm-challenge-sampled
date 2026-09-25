@@ -30,6 +30,7 @@ def get_color_for_model(model_name):
         "qwen2.5_1.5b": "blue",
         "gemma2_2b": "darkblue",
         "llama3.2_1b": "turquoise",
+        "deepseekr1_15b": "darkgreen",
     }
     return colors.get(model_base_name, "gray")
 
@@ -40,6 +41,7 @@ def get_markers():
         "q8_0": "X",
         "q4_1": "s",
         "q4_K_M": "P",
+        "distill_q4_K_M": "P",
         "q4_0": "D",
         "q4_K_S": (4, 1, 0),
         "q3_K_L": "^",
@@ -109,6 +111,12 @@ def get_colors():
         "llama32_1b_instruct_q3_K_L": "#117733",
         "llama32_1b_instruct_q3_K_M": "#117733",
         "llama32_1b_instruct_q3_K_S": "#117733",
+        "deepseekr1_15b": "#006400",
+        "deepseekr1_15b_qwen": "#006400",
+        "deepseekr1_15b_qwen_distill": "#006400",
+        "deepseekr1_15b_qwen_distill_fp16": "#006400",
+        "deepseekr1_15b_qwen_distill_q8_0": "#006400",
+        "deepseekr1_15b_qwen_distill_q4_K_M": "#006400",
         #########################
         "qwen2.5_0.5b": "#CC6677",
         "qwen2.5_0.5b_instruct": "#CC6677",
@@ -154,6 +162,12 @@ def get_colors():
         "llama3.2_1b_instruct_q3_K_L": "#117733",
         "llama3.2_1b_instruct_q3_K_M": "#117733",
         "llama3.2_1b_instruct_q3_K_S": "#117733",
+        "deepseekr1_1.5b": "#006400",
+        "deepseekr1_1.5b_qwen": "#006400",
+        "deepseekr1_1.5b_qwen_distill": "#006400",
+        "deepseekr1_1.5b_qwen_distill_fp16": "#006400",
+        "deepseekr1_1.5b_qwen_distill_q8_0": "#006400",
+        "deepseekr1_1.5b_qwen_distill_q4_K_M": "#006400",
     }
 
 def get_model_colors():
@@ -163,10 +177,12 @@ def get_model_colors():
         "qwen2.5_1.5b": "blue",
         "gemma2_2b": "orange",
         "llama3.2_1b": "green",
+        "deepseekr1_1.5b": "darkgreen",
         "qwen25_05b": "skyblue",
         "qwen25_15b": "blue",
         "gemma2_2b": "orange",
         "llama32_1b": "green",
+        "deepseekr1_15b": "darkgreen",
         "bigbenchhard": "olive",
         "commonsenseqa": "pink",
         "gsm8k": "brown",
@@ -189,10 +205,12 @@ def plot_legend(ax, location="best"):
         "qwen25_15b": "blue",
         "gemma2_2b": "orange",
         "llama32_1b": "green",
+        "deepseekr1_15b": "darkgreen",
         "qwen2.5_0.5b": "skyblue",
         "qwen2.5_1.5b": "blue",
         "gemma2_2b": "orange",
         "llama3.2_1b": "green",
+        "deepseekr1_1.5b": "darkgreen",
     }
 
     handles = [plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=color, markersize=10) for color in colors.values()]
